@@ -39,6 +39,8 @@ public class Parser extends BaseDanmakuParser {
                     }
                 }
             }
+            // todo cf 弹幕
+            CustomConfigManager.get().showToast("加载弹幕:" + result.size() +"条", 1000);
             return result;
         } catch (Exception e) {
             e.printStackTrace();
@@ -53,6 +55,13 @@ public class Parser extends BaseDanmakuParser {
             if (type == 2 || type == 3) type = BaseDanmaku.TYPE_SCROLL_RL;
             BaseDanmaku item = mContext.mDanmakuFactory.createDanmaku(type, mContext);
             if (item == null || item.getType() == BaseDanmaku.TYPE_SPECIAL) return null;
+
+            // todo cf 弹幕
+//            long a = data.getTime()/1000;
+//            long min = a/60;
+//            long sec = a%60;
+//            DanmakuUtils.fillText(item, data.getText() + ":" + min + ":" + sec);
+
             DanmakuUtils.fillText(item, data.getText());
             item.textShadowColor = data.getShadow();
             item.textColor = data.getColor();

@@ -12,6 +12,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.os.HandlerCompat;
 
+import com.fongmi.android.tv.player.danmaku.CustomConfigManager;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.hook.Hook;
 import com.github.catvod.Init;
@@ -57,6 +58,11 @@ public class App extends Application implements Application.ActivityLifecycleCal
         super.onCreate();
         Notify.createChannel();
         registerActivityLifecycleCallbacks(this);
+
+        // 初始化 CustomConfigManager
+        // todo cf 弹幕
+        CustomConfigManager.get().init();
+        CustomConfigManager.get().setContext(this);
     }
 
     @Override

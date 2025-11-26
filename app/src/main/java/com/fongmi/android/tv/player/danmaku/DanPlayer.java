@@ -19,12 +19,13 @@ import master.flame.danmaku.danmaku.model.IDisplayer;
 import master.flame.danmaku.danmaku.model.android.DanmakuContext;
 import master.flame.danmaku.ui.widget.DanmakuView;
 
-public class DanPlayer implements DrawHandler.Callback {
+public class DanPlayer implements DrawHandler.Callback, Sync.OffsetProvider {
 
     private final DanmakuContext context;
     private DanmakuView view;
     private Future<?> future;
     private Players player;
+    private long offset = 0;
 
     public DanPlayer() {
         context = DanmakuContext.create();
@@ -51,7 +52,7 @@ public class DanPlayer implements DrawHandler.Callback {
     }
 
     public void setPlayer(Players player) {
-        context.setDanmakuSync(new Sync(this.player = player));
+        context.setDanmakuSync(new Sync(this.player = player, this));
     }
 
     private boolean isPrepared() {
@@ -69,8 +70,15 @@ public class DanPlayer implements DrawHandler.Callback {
     public void seekTo(long time) {
         App.execute(() -> {
             if (!isPrepared()) return;
-            view.seekTo(time);
+            view.seekTo(time + offset);
             view.hide();
+        });
+    }
+
+    // todo cf 弹幕
+    public void onSeekTo(long time) {
+        App.execute(() -> {
+            if (isPrepared()) view.seekTo(time + offset);
         });
     }
 
@@ -125,7 +133,7 @@ public class DanPlayer implements DrawHandler.Callback {
             long position = player.getPosition();
             App.execute(() -> {
                 if (!isPrepared()) return;
-                if (playing) view.start(position);
+                if (playing) view.start(position + offset);
                 else view.pause();
                 view.show();
             });
@@ -142,5 +150,26 @@ public class DanPlayer implements DrawHandler.Callback {
 
     @Override
     public void drawingFinished() {
+    }
+
+    // todo cf 弹幕
+    public void setRlMaxLines(int rlCount) {
+        HashMap<Integer, Integer> maxLines = new HashMap<>();
+        maxLines.put(BaseDanmaku.TYPE_FIX_TOP, 2);
+        maxLines.put(BaseDanmaku.TYPE_SCROLL_RL, rlCount);
+        maxLines.put(BaseDanmaku.TYPE_SCROLL_LR, 2);
+        maxLines.put(BaseDanmaku.TYPE_FIX_BOTTOM, 2);
+        context.setMaximumLines(maxLines);
+    }
+
+    // todo cf 弹幕
+    public void setOffset(long offset) {
+        this.offset = offset * 1000;
+    }
+
+    // todo cf 弹幕
+    @Override
+    public long getOffset() {
+        return offset;
     }
 }

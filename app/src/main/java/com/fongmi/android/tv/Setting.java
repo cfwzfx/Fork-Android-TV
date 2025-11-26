@@ -171,7 +171,9 @@ public class Setting {
     }
 
     public static boolean getUpdate() {
-        return Prefers.getBoolean("update", true);
+        // todo cf 禁用更新
+        //return Prefers.getBoolean("update", true);
+        return false;
     }
 
     public static void putUpdate(boolean update) {

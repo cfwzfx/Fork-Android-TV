@@ -7,14 +7,16 @@ import master.flame.danmaku.danmaku.model.AbsDanmakuSync;
 public class Sync extends AbsDanmakuSync {
 
     private final Players player;
+    private final OffsetProvider offsetProvider;
 
-    public Sync(Players player) {
+    public Sync(Players player, OffsetProvider offsetProvider) {
         this.player = player;
+        this.offsetProvider = offsetProvider;
     }
 
     @Override
     public long getUptimeMillis() {
-        return player.getPosition();
+        return player.getPosition() + offsetProvider.getOffset();
     }
 
     @Override
@@ -30,5 +32,10 @@ public class Sync extends AbsDanmakuSync {
     @Override
     public boolean isSyncPlayingState() {
         return true;
+    }
+
+    // todo cf 弹幕
+    public interface OffsetProvider {
+        long getOffset();
     }
 }
