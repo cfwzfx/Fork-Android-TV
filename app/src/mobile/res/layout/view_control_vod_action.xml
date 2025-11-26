@@ -92,6 +92,13 @@
             tools:visibility="visible" />
 
         <TextView
+            android:id="@+id/danmakucontrol"
+            style="@style/Control.Action"
+            android:text="弹控"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <TextView
             android:id="@+id/episodes"
             style="@style/Control.Action"
             android:text="@string/detail_episode" />

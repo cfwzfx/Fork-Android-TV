@@ -143,6 +143,21 @@ public class Players implements Player.Listener, ParseCallback {
         danPlayer.setView(view);
     }
 
+    // todo cf 弹幕
+    public void setDanmakuRlCount(int rlCount) {
+        if (danPlayer != null) {
+            danPlayer.setRlMaxLines(rlCount);
+        }
+    }
+
+    // todo cf 弹幕
+    public void setDanmakuOffset(int offset) {
+        if (danPlayer != null) {
+            danPlayer.setOffset(offset);
+            danPlayer.onSeekTo(exoPlayer.getCurrentPosition());
+        }
+    }
+
     public ExoPlayer get() {
         return exoPlayer;
     }

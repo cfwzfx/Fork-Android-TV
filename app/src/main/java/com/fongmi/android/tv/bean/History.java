@@ -59,6 +59,10 @@ public class History {
     private int scale;
     @SerializedName("cid")
     private int cid;
+    @SerializedName("danmakuRlCount")
+    private int danmakuRlCount;
+    @SerializedName("danmakuOffset")
+    private int danmakuOffset;
 
     public static History objectFrom(String str) {
         return App.gson().fromJson(str, History.class);
@@ -77,6 +81,8 @@ public class History {
         this.opening = C.TIME_UNSET;
         this.position = C.TIME_UNSET;
         this.duration = C.TIME_UNSET;
+        danmakuOffset = 0;
+        danmakuRlCount = 2;
     }
 
     @NonNull
@@ -254,6 +260,23 @@ public class History {
 
     public static void delete(int cid) {
         AppDatabase.get().getHistoryDao().delete(cid);
+    }
+
+    // todo cf 弹幕
+    public void setDanmakuOffset(int danmakuOffset) {
+        this.danmakuOffset = danmakuOffset;
+    }
+
+    public int getDanmakuOffset() {
+        return danmakuOffset;
+    }
+
+    public void setDanmakuRlCount(int danmakuRlCount) {
+        this.danmakuRlCount = danmakuRlCount;
+    }
+
+    public int getDanmakuRlCount() {
+        return danmakuRlCount;
     }
 
     private void checkParam(History item) {
