@@ -13,6 +13,7 @@ import androidx.annotation.Nullable;
 import androidx.core.os.HandlerCompat;
 
 import com.fongmi.android.tv.event.EventIndex;
+import com.fongmi.android.tv.player.danmaku.CustomConfigManager;
 import com.fongmi.android.tv.ui.activity.CrashActivity;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.hook.Hook;
@@ -153,8 +154,12 @@ public class App extends Application {
             public void onActivitySaveInstanceState(@NonNull Activity activity, @NonNull Bundle outState) {
             }
         });
-    }
 
+        // 初始化 CustomConfigManager
+        // todo cf 弹幕
+        CustomConfigManager.get().init();
+        CustomConfigManager.get().setContext(this);
+    }
     @Override
     public PackageManager getPackageManager() {
         return hook != null ? hook : getBaseContext().getPackageManager();

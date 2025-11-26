@@ -56,6 +56,8 @@ public class Parser extends BaseDanmakuParser {
                     result.addItem(item);
                 }
             }
+            // todo cf 弹幕
+            CustomConfigManager.get().showToast("加载弹幕:" + items.size() +"条", 1000);
             return result;
         } catch (Exception e) {
             e.printStackTrace();

@@ -8,15 +8,17 @@ public class Sync extends AbsDanmakuSync {
 
     private final Players player;
     private long time;
+    private final OffsetProvider offsetProvider;
 
-    public Sync(Players player) {
+    public Sync(Players player, OffsetProvider offsetProvider) {
         this.player = player;
+        this.offsetProvider = offsetProvider;
         this.time = System.currentTimeMillis();
     }
 
     @Override
     public long getUptimeMillis() {
-        return player == null ? 0 : player.getPosition();
+        return player == null ? 0 : player.getPosition() + offsetProvider.getOffset();
     }
 
     @Override
@@ -31,5 +33,10 @@ public class Sync extends AbsDanmakuSync {
     @Override
     public long getThresholdTimeMills() {
         return 1000L;
+    }
+
+    // todo cf 弹幕
+    public interface OffsetProvider {
+        long getOffset();
     }
 }

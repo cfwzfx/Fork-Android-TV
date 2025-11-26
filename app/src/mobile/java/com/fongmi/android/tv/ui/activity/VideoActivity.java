@@ -61,6 +61,7 @@ import com.fongmi.android.tv.event.PlayerEvent;
 import com.fongmi.android.tv.event.RefreshEvent;
 import com.fongmi.android.tv.model.SiteViewModel;
 import com.fongmi.android.tv.player.Players;
+import com.fongmi.android.tv.player.danmaku.CustomConfigManager;
 import com.fongmi.android.tv.player.exo.ExoUtil;
 import com.fongmi.android.tv.service.PlaybackService;
 import com.fongmi.android.tv.ui.adapter.EpisodeAdapter;
@@ -75,6 +76,7 @@ import com.fongmi.android.tv.ui.custom.CustomMovement;
 import com.fongmi.android.tv.ui.custom.SpaceItemDecoration;
 import com.fongmi.android.tv.ui.dialog.CastDialog;
 import com.fongmi.android.tv.ui.dialog.ControlDialog;
+import com.fongmi.android.tv.ui.dialog.DanmakuControlDialog;
 import com.fongmi.android.tv.ui.dialog.DanmakuDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeGridDialog;
 import com.fongmi.android.tv.ui.dialog.EpisodeListDialog;
@@ -349,6 +351,9 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         mBinding.control.action.getRoot().setOnTouchListener(this::onActionTouch);
         mBinding.swipeLayout.setOnRefreshListener(this::onSwipeRefresh);
         mBinding.control.seek.setListener(mPlayers);
+
+        // todo cf 弹幕
+        mBinding.control.action.danmakucontrol.setOnClickListener(view -> onDanmakuControl());
     }
 
     private void setRecyclerView() {
@@ -382,6 +387,9 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         mBinding.control.action.danmaku.setVisibility(Setting.isDanmakuLoad() ? View.VISIBLE : View.GONE);
         mBinding.control.action.reset.setText(ResUtil.getStringArray(R.array.select_reset)[Setting.getReset()]);
         mBinding.video.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> mPiP.update(getActivity(), view));
+
+        // todo cf 弹幕
+        mBinding.control.action.danmakucontrol.setVisibility(Setting.isDanmakuLoad() ? View.VISIBLE : View.GONE);
     }
 
     private void setVideoView(boolean isInPictureInPictureMode) {
@@ -737,6 +745,12 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         hideControl();
     }
 
+    // todo cf 弹幕
+    private void onDanmakuControl() {
+        DanmakuControlDialog.create().player(mPlayers).history(mHistory).show(this);
+        hideControl();
+    }
+
     private void onDanmakuShow() {
         Setting.putDanmakuShow(!Setting.isDanmakuShow());
         checkDanmakuImg();
@@ -1019,6 +1033,13 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         mHistory.setVodPic(item.getVodPic());
         setScale(getScale());
         setArtwork();
+
+        // todo cf 弹幕
+        if (mPlayers != null) {
+            CustomConfigManager.get().setCurrentHistoryId(mHistory.getKey());
+            mPlayers.setDanmakuRlCount(CustomConfigManager.get().getDanmuMaxLines());
+            mPlayers.setDanmakuOffset(CustomConfigManager.get().getHistoryOffset(CustomConfigManager.get().getCurrentHistoryId()));
+        }
     }
 
     private History createHistory(Vod item) {
