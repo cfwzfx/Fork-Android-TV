@@ -1,17 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--todo cf 优化背景 删除了顶层的RelativeLayout的android:background="@color/black_20" -->
+<!--todo cf 优化背景 添加的cf开头的drawable就是自定义背景色 -->
+
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/black_20">
+    android:layout_height="match_parent">
 
     <LinearLayout
         android:id="@+id/top"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="8dp">
+        android:padding="8dp"
+        android:background="@drawable/cf_video_background_top">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -174,8 +177,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
-        android:layout_marginBottom="8dp"
-        android:orientation="vertical">
+        android:paddingBottom="8dp"
+        android:orientation="vertical"
+        android:background="@drawable/cf_video_background_bottom">
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/parse"

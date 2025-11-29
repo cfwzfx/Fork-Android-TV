@@ -77,6 +77,9 @@ public class CustomConfigManager {
                 config.setHistory(new ArrayList<>());
             }
         } catch (Exception e) {
+            if (context != null) {
+                showToast("初始化过程中加载自定义配置文件失败", 1000);
+            }
             e.printStackTrace();
             // 读取失败，使用默认配置
             config = new CustomConfig();
@@ -98,6 +101,9 @@ public class CustomConfigManager {
                 fos.flush();
             }
         } catch (IOException e) {
+            if (context != null) {
+                showToast("保存自定义配置文件失败", 1000);
+            }
             e.printStackTrace();
         }
     }
@@ -172,6 +178,69 @@ public class CustomConfigManager {
             init();
         }
         config.setDanmuMaxLines(danmuMaxLines);
+        saveToFile();
+    }
+
+    /**
+     * 获取弹幕显示字体大小
+     */
+    public int getDanmuTextSize() {
+        if (!initialized) {
+            init();
+        }
+        return config.getDnamuTextSize();
+    }
+
+    /**
+     * 设置弹幕显示字体大小
+     */
+    public void setDanmuTextSize(int dnamuTextSize) {
+        if (!initialized) {
+            init();
+        }
+        config.setDnamuTextSize(dnamuTextSize);
+        saveToFile();
+    }
+
+    /**
+     * 获取弹幕行间距
+     */
+    public int getDnamuLineSpacing() {
+        if (!initialized) {
+            init();
+        }
+        return config.getDnamuLineSpacing();
+    }
+
+    /**
+     * 设置弹幕行间距
+     */
+    public void setDnamuLineSpacing(int dnamuLineSpacing) {
+        if (!initialized) {
+            init();
+        }
+        config.setDnamuLineSpacing(dnamuLineSpacing);
+        saveToFile();
+    }
+
+    /**
+     * 获取弹幕速度
+     */
+    public int getDnamuSpeed() {
+        if (!initialized) {
+            init();
+        }
+        return config.getDnamuSpeed();
+    }
+
+    /**
+     * 设置弹幕速度
+     */
+    public void setDnamuSpeed(int dnamuSpeed) {
+        if (!initialized) {
+            init();
+        }
+        config.setDnamuSpeed(dnamuSpeed);
         saveToFile();
     }
 

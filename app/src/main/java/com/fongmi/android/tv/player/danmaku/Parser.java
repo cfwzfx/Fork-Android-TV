@@ -6,6 +6,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,7 +50,7 @@ public class Parser extends BaseDanmakuParser {
                 item.textColor = items.get(i).getColor();
                 item.flags = mContext.mGlobalFlagValues;
                 item.textSize = items.get(i).getSize();
-                item.setTime(items.get(i).getTime());
+                item.setTime(addRandomOffset(items.get(i).getTime()));
                 item.setTimer(mTimer);
                 item.index = i;
                 synchronized (result.obtainSynchronizer()) {
@@ -57,11 +58,27 @@ public class Parser extends BaseDanmakuParser {
                 }
             }
             // todo cf 弹幕
-            CustomConfigManager.get().showToast("加载弹幕:" + items.size() +"条", 1000);
+            if (result.size() > 0) {
+                CustomConfigManager.get().showToast("加载弹幕:" + result.size() +"条", 1000);
+            }
             return result;
         } catch (Exception e) {
             e.printStackTrace();
             return null;
+        }
+    }
+
+    // todo cf 弹幕
+    // 添加随机数，让弹幕更加随机一点
+    public static long addRandomOffset(long number) {
+        Random random = new Random();
+        int randomIndex = random.nextInt(10);
+        int offset = -500 + randomIndex * 100;
+        long randomTime =  number + offset;
+        if (randomTime < 0) {
+            return 0;
+        } else {
+            return randomTime;
         }
     }
 }

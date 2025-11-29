@@ -283,7 +283,18 @@ public class History {
     public History update(int cid, List<History> items) {
         setCid(cid);
         merge(items, true);
+
+        // todo cf 修复同步历史记录出错的问题
+        setKey(removeAfterLastTripleAt(this.getKey()) + cid);
+
         return save();
+    }
+
+    // todo cf 修复同步历史记录出错的问题
+    public static String removeAfterLastTripleAt(String str) {
+        if (str == null) return null;
+        int lastIndex = str.lastIndexOf(AppDatabase.SYMBOL);
+        return lastIndex != -1 ? str.substring(0, lastIndex + 3) : str;
     }
 
     public History save() {
