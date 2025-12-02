@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -60,6 +61,19 @@ public final class DanmakuDialog extends BaseDialog implements DanmakuAdapter.On
         binding.recycler.addItemDecoration(new SpaceItemDecoration(1, 16));
         binding.recycler.post(() -> binding.recycler.scrollToPosition(adapter.getSelected()));
         binding.recycler.setVisibility(adapter.getItemCount() == 0 ? View.GONE : View.VISIBLE);
+
+
+        // todo cf 弹幕
+        binding.refresh.setOnClickListener(v -> {
+            if (adapter.getSelected() == (player.getDanmakus().size() - 1)) {
+                Toast.makeText(v.getContext(), "请选择弹幕项，再点击刷新", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            Danmaku danmaku = player.getDanmakus().get(adapter.getSelected());
+            Toast.makeText(v.getContext(), "正在刷新：" + danmaku.getName(), Toast.LENGTH_SHORT).show();
+            player.setDanmaku(danmaku);
+        });
     }
 
     @Override
