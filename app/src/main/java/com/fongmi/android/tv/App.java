@@ -61,8 +61,9 @@ public class App extends Application implements Application.ActivityLifecycleCal
 
         // 初始化 CustomConfigManager
         // todo cf 弹幕
-        CustomConfigManager.get().init();
+        // 先设置context，为了保证加载文件的时候报错，弹出toast
         CustomConfigManager.get().setContext(this);
+        CustomConfigManager.get().init();
     }
 
     @Override

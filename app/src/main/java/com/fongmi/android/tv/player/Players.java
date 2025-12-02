@@ -166,6 +166,21 @@ public class Players implements Player.Listener, ParseCallback {
         }
     }
 
+    // todo cf 弹幕
+    public void setCustomDanmakuSize(int configSize) {
+        if (danPlayer != null) danPlayer.setCustomTextSize(configSize);
+    }
+
+    // todo cf 弹幕
+    public void setCustomLineSpacing(int configSize) {
+        if (danPlayer != null) danPlayer.setCustomLineSpacing(configSize);
+    }
+
+    // todo cf 弹幕
+    public void setCustomSpeed(int configSize) {
+        if (danPlayer != null) danPlayer.setCustomSpeed(configSize);
+    }
+
     public ExoPlayer get() {
         return exoPlayer;
     }

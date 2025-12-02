@@ -1055,6 +1055,9 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         if (mPlayers != null) {
             CustomConfigManager.get().setCurrentHistoryId(mHistory.getKey());
             mPlayers.setDanmakuRlCount(CustomConfigManager.get().getDanmuMaxLines());
+            mPlayers.setCustomDanmakuSize(CustomConfigManager.get().getDanmuTextSize());
+            mPlayers.setCustomLineSpacing(CustomConfigManager.get().getDnamuLineSpacing());
+            mPlayers.setCustomSpeed(CustomConfigManager.get().getDnamuSpeed());
             mPlayers.setDanmakuOffset(CustomConfigManager.get().getHistoryOffset(CustomConfigManager.get().getCurrentHistoryId()));
         }
     }
