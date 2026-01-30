@@ -19,6 +19,7 @@ import androidx.viewbinding.ViewBinding;
 import com.fongmi.android.tv.Product;
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.api.config.VodConfig;
+import com.fongmi.android.tv.bean.Cache;
 import com.fongmi.android.tv.bean.Filter;
 import com.fongmi.android.tv.bean.Result;
 import com.fongmi.android.tv.bean.Site;
@@ -38,7 +39,6 @@ import com.fongmi.android.tv.ui.presenter.FilterPresenter;
 import com.fongmi.android.tv.ui.presenter.VodPresenter;
 import com.fongmi.android.tv.utils.Notify;
 import com.fongmi.android.tv.utils.ResUtil;
-import com.github.catvod.utils.Prefers;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -89,12 +89,12 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         return (HashMap<String, String>) getArguments().getSerializable("extend");
     }
 
-    private Site getSite() {
-        return VodConfig.get().getSite(getKey());
+    private List<Filter> getFilter() {
+        return Cache.get(getTypeId());
     }
 
-    private List<Filter> getFilter() {
-        return Filter.arrayFrom(Prefers.getString("filter_" + getKey() + "_" + getTypeId()));
+    private Site getSite() {
+        return VodConfig.get().getSite(getKey());
     }
 
     private FolderFragment getParent() {
@@ -231,6 +231,7 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
     }
 
     public void toggleFilter(boolean visible) {
+        if (mFilters.isEmpty()) return;
         this.filterVisible = visible;
         if (visible) showFilter();
         else hideFilter();
@@ -253,18 +254,18 @@ public class TypeFragment extends BaseFragment implements CustomScroller.Callbac
         if (item.isAction()) {
             mViewModel.action(getKey(), item.getAction());
         } else if (item.isFolder()) {
-            getParent().openFolder(item.getVodId(), mExtends);
+            getParent().openFolder(item.getId(), mExtends);
             headerVisible = mBinding.recycler.isHeaderVisible();
         } else {
-            if (getSite().isIndex()) CollectActivity.start(requireActivity(), item.getVodName());
-            else VideoActivity.start(requireActivity(), getKey(), item.getVodId(), item.getVodName(), item.getVodPic(), isFolder() ? item.getVodName() : null);
+            if (getSite().isIndex()) CollectActivity.start(requireActivity(), item.getName());
+            else VideoActivity.start(requireActivity(), getKey(), item.getId(), item.getName(), item.getPic(), isFolder() ? item.getName() : null);
         }
     }
 
     @Override
     public boolean onLongClick(Vod item) {
         if (item.isAction() || item.isFolder()) return false;
-        CollectActivity.start(requireActivity(), item.getVodName());
+        CollectActivity.start(requireActivity(), item.getName());
         return true;
     }
 

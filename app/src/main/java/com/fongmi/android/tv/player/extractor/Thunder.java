@@ -22,7 +22,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class Thunder implements Source.Extractor {
 
@@ -104,7 +103,7 @@ public class Thunder implements Source.Extractor {
             if (torrent && url.startsWith("http")) Download.create(url, taskId.getSaveFile()).get();
             if (!torrent) waitDone(taskId);
             try {
-                return XLTaskHelper.get().getTorrentInfo(taskId.getSaveFile()).getMedias().stream().map(this::create).collect(Collectors.toList());
+                return XLTaskHelper.get().getTorrentInfo(taskId.getSaveFile()).getMedias().stream().map(this::create).toList();
             } finally {
                 XLTaskHelper.get().stopTask(taskId);
             }

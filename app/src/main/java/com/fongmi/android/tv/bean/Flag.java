@@ -17,7 +17,7 @@ import org.simpleframework.xml.Attribute;
 import org.simpleframework.xml.Text;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -41,15 +41,21 @@ public class Flag implements Parcelable, Diffable<Flag> {
         return new Flag(flag).trans();
     }
 
+    public static Flag create(String flag, String url) {
+        Flag item = create(flag);
+        item.setEpisodes(url);
+        return item;
+    }
+
     public Flag() {
-        this.episodes = new ArrayList<>();
         this.position = -1;
+        this.episodes = new ArrayList<>();
     }
 
     public Flag(String flag) {
-        this.episodes = new ArrayList<>();
         this.flag = flag;
         this.position = -1;
+        this.episodes = new ArrayList<>();
     }
 
     public String getShow() {
@@ -65,7 +71,7 @@ public class Flag implements Parcelable, Diffable<Flag> {
     }
 
     public String getUrls() {
-        return urls;
+        return TextUtils.isEmpty(urls) ? "" : urls;
     }
 
     public List<Episode> getEpisodes() {
@@ -89,16 +95,6 @@ public class Flag implements Parcelable, Diffable<Flag> {
         this.position = position;
     }
 
-    public void createEpisode(String data) {
-        String[] urls = data.contains("#") ? data.split("#") : new String[]{data};
-        for (int i = 0; i < urls.length; i++) {
-            String[] split = urls[i].split("\\$", 2);
-            String number = String.format(Locale.getDefault(), "%02d", i + 1);
-            Episode episode = split.length > 1 ? Episode.create(split[0].isEmpty() ? number : split[0].trim(), split[1]) : Episode.create(number, urls[i]);
-            if (!getEpisodes().contains(episode)) getEpisodes().add(episode);
-        }
-    }
-
     public void toggle(boolean activated, Episode episode) {
         if (activated) setActivated(episode);
         else getEpisodes().forEach(Episode::deactivated);
@@ -110,21 +106,23 @@ public class Flag implements Parcelable, Diffable<Flag> {
     }
 
     public Episode find(String remarks, boolean strict) {
-        int number = Util.getDigit(remarks);
         if (getEpisodes().isEmpty()) return null;
         if (getEpisodes().size() == 1) return getEpisodes().get(0);
-        for (Episode item : getEpisodes()) if (item.rule1(remarks)) return item;
-        for (Episode item : getEpisodes()) if (item.rule2(number)) return item;
-        if (number == -1) for (Episode item : getEpisodes()) if (item.rule3(remarks)) return item;
-        if (number == -1) for (Episode item : getEpisodes()) if (item.rule4(remarks)) return item;
-        if (getPosition() != -1) return getEpisodes().get(getPosition());
-        return strict ? null : getEpisodes().get(0);
+        int number = Util.getNumber(remarks);
+        return getEpisodes().stream()
+                .map(episode -> new Episode.Rule(episode, episode.getScore(remarks, number)))
+                .filter(Episode.Rule::find).max(Comparator.comparingInt(Episode.Rule::score)).map(Episode.Rule::episode)
+                .orElseGet(() -> getPosition() != -1 ? getEpisodes().get(getPosition()) : strict ? null : getEpisodes().get(0));
     }
 
-    public static List<Flag> create(String flag, String url) {
-        Flag item = Flag.create(flag);
-        item.getEpisodes().add(Episode.create("01", url));
-        return Arrays.asList(item);
+    public void setEpisodes(String url) {
+        String[] urls = url.contains("#") ? url.split("#") : new String[]{url};
+        for (int i = 0; i < urls.length; i++) {
+            String[] split = urls[i].split("\\$", 2);
+            String number = String.format(Locale.getDefault(), "%02d", i + 1);
+            Episode episode = split.length > 1 ? Episode.create(split[0].isEmpty() ? number : split[0].trim(), split[1]) : Episode.create(number, urls[i]);
+            if (!getEpisodes().contains(episode)) getEpisodes().add(episode);
+        }
     }
 
     public Flag trans() {

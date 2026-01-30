@@ -116,7 +116,7 @@ public class VodConfig {
             Server.get().start();
             String json = Decoder.getJson(UrlUtil.convert(config.getUrl()), TAG);
             checkJson(id, config, callback, Json.parse(json).getAsJsonObject());
-            if (taskId.get() == id) config.update();
+            if (taskId.get() == id && config.equals(this.config)) config.update();
         } catch (Throwable e) {
             e.printStackTrace();
             if (isCanceled(e)) return;
@@ -240,12 +240,12 @@ public class VodConfig {
     }
 
     public List<Parse> getParses(int type) {
-        return getParses().stream().filter(item -> item.getType() == type).collect(Collectors.toList());
+        return getParses().stream().filter(item -> item.getType() == type).toList();
     }
 
     public List<Parse> getParses(int type, String flag) {
         List<Parse> items = getParses(type);
-        List<Parse> filter = items.stream().filter(item -> item.getExt().getFlag().contains(flag)).collect(Collectors.toList());
+        List<Parse> filter = items.stream().filter(item -> item.getExt().getFlag().contains(flag)).toList();
         return filter.isEmpty() ? items : filter;
     }
 
