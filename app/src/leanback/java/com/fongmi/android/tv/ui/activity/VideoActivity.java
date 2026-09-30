@@ -35,6 +35,8 @@ import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.offline.OfflineIntegration;
+import com.fongmi.android.tv.offline.OfflinePlayback;
 import com.fongmi.android.tv.Setting;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.Danmaku;
@@ -125,6 +127,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     private List<String> mBroken;
     private History mHistory;
     private Players mPlayers;
+    private OfflinePlayback mOffline;
     private boolean fullscreen;
     private boolean initAuto;
     private boolean autoMode;
@@ -214,7 +217,12 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         return getKey().concat(AppDatabase.SYMBOL).concat(getId()).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
     }
 
+    private boolean isOffline() {
+        return OfflinePlayback.isOffline(getIntent());
+    }
+
     private Site getSite() {
+        if (mOffline != null) return mOffline.site();
         return VodConfig.get().getSite(getKey());
     }
 
@@ -263,7 +271,8 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         super.onNewIntent(intent);
         String id = Objects.toString(intent.getStringExtra("id"), "");
         if (TextUtils.isEmpty(id) || id.equals(getId())) return;
-        getIntent().putExtras(intent);
+        if (mOffline != null) { mOffline.save(mHistory); mOffline.close(); mOffline = null; }
+        setIntent(intent);
         stopSearch();
         checkId();
     }
@@ -293,6 +302,14 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     @SuppressLint("ClickableViewAccessibility")
     protected void initEvent() {
         mBinding.control.seek.setListener(mPlayers);
+        mBinding.offlineCache.setOnClickListener(view -> {
+            if (mBinding.widget.progress.getVisibility() == View.VISIBLE || mBinding.widget.error.getVisibility() == View.VISIBLE) {
+                Notify.show(R.string.offline_not_ready);
+                return;
+            }
+            OfflineIntegration.cacheCurrent(this, mPlayers, mHistory);
+        });
+        mBinding.offlineCache.setOnLongClickListener(view -> { OfflineIntegration.open(this); return true; });
         mBinding.desc.setOnClickListener(view -> onDesc());
         mBinding.keep.setOnClickListener(view -> onKeep());
         mBinding.video.setOnClickListener(view -> onVideo());
@@ -409,10 +426,17 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     private void getDetail() {
+        if (isOffline()) {
+            if (mOffline == null) mOffline = new OfflinePlayback(this);
+            mOffline.loadDetail(this::setDetail);
+            return;
+        }
         mViewModel.detailContent(getKey(), getId());
     }
 
     private void getDetail(Vod item) {
+        if (mOffline != null) { mOffline.save(mHistory); mOffline.close(); mOffline = null; }
+        getIntent().removeExtra("offline_id");
         getIntent().putExtra("key", item.getSiteKey());
         getIntent().putExtra("pic", item.getVodPic());
         getIntent().putExtra("id", item.getVodId());
@@ -424,6 +448,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     private void setDetail(Result result) {
+        if (isOffline()) return;
         if (result.getList().isEmpty()) setEmpty(result.hasMsg());
         else setDetail(result.getList().get(0));
         Notify.show(result.getMsg());
@@ -512,22 +537,31 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     private void getPlayer(Flag flag, Episode episode, boolean replay) {
+        mParseAdapter.setItems(VodConfig.get().getParses(), null);
         mBinding.widget.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
-        mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl());
+        if (!isOffline()) mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         mBinding.widget.title.setSelected(true);
         updateHistory(episode, replay);
         showProgress();
         setMetadata();
         hideCenter();
+        if (isOffline()) {
+            setUseParse(false);
+            mBinding.control.parse.setVisibility(VodConfig.hasParse() ? View.VISIBLE : View.GONE);
+            setQualityVisible(false);
+            mPlayers.setKey(mHistory.getKey());
+            mOffline.play(episode, mPlayers, () -> showError(getString(R.string.offline_missing)));
+        }
     }
 
     private void setPlayer(Result result) {
+        if (isOffline()) return;
         result.getUrl().set(mQualityAdapter.getPosition());
         if (!result.getDesc().isEmpty()) setText(mBinding.content, R.string.detail_content, result.getDesc());
         setUseParse(VodConfig.hasParse() && ((result.getPlayUrl().isEmpty() && VodConfig.get().getFlags().contains(result.getFlag())) || result.getJx() == 1));
         mPlayers.start(result, isUseParse(), getSite().isChangeable() ? getSite().getTimeout() : -1);
-        mBinding.control.parse.setVisibility(isUseParse() ? View.VISIBLE : View.GONE);
+        mBinding.control.parse.setVisibility((isUseParse() || VodConfig.hasParse()) ? View.VISIBLE : View.GONE);
         setQualityVisible(result.getUrl().isMulti());
         mQualityAdapter.addAll(result);
     }
@@ -589,6 +623,11 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     private void setParseActivated(Parse item) {
+        if (isOffline() || item.isDanmaku()) {
+            mPlayers.searchDanmaku(item, mOffline == null ? Result.objectFrom(mPlayers.getSourceResult()) : mOffline.source());
+            return;
+        }
+        if (isOffline()) return;
         VodConfig.get().setParse(item);
         notifyItemChanged(mBinding.control.parse, mParseAdapter);
         onRefresh();
@@ -946,10 +985,10 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     }
 
     private void checkHistory(Vod item) {
-        mHistory = History.find(getHistoryKey());
+        mHistory = mOffline == null ? History.find(getHistoryKey()) : mOffline.history();
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
-        if (Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
+        if (!isOffline() && Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
         mBinding.control.opening.setText(mHistory.getOpening() <= 0 ? getString(R.string.play_op) : mPlayers.stringToTime(mHistory.getOpening()));
         mBinding.control.ending.setText(mHistory.getEnding() <= 0 ? getString(R.string.play_ed) : mPlayers.stringToTime(mHistory.getEnding()));
         mBinding.control.speed.setText(mPlayers.setSpeed(mHistory.getSpeed()));
@@ -1017,7 +1056,10 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         long position, duration;
         mHistory.setPosition(position = mPlayers.getPosition());
         mHistory.setDuration(duration = mPlayers.getDuration());
-        if (position >= 0 && duration > 0 && !Setting.isIncognito()) App.execute(() -> mHistory.update());
+        if (position >= 0 && duration > 0 && !Setting.isIncognito()) {
+            if (mOffline != null) mOffline.save(mHistory);
+            else App.execute(() -> mHistory.update());
+        }
         if (mHistory.getEnding() > 0 && duration > 0 && mHistory.getEnding() + position >= duration) {
             checkEnded(false);
         }
@@ -1108,6 +1150,11 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onErrorEvent(ErrorEvent event) {
         if (!event.getTag().equals(tag)) return;
+        if (isOffline()) {
+            showError(getString(R.string.offline_play_error));
+            mClock.setCallback(null);
+            return;
+        }
         if (mPlayers.retried()) onError(event);
         else onRefresh();
     }
@@ -1427,6 +1474,7 @@ public class VideoActivity extends BaseActivity implements CustomKeyDownVod.List
         super.onDestroy();
         stopSearch();
         mClock.release();
+        if (mOffline != null) { mOffline.save(mHistory); mOffline.close(); }
         mPlayers.release();
         RefreshEvent.history();
         PlaybackService.stop();

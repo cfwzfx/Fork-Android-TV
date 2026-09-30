@@ -246,6 +246,37 @@ public class VodConfig {
         return sites == null ? Collections.emptyList() : sites;
     }
 
+    /** Restore dynamic playback entries for direct cache launches without a config URL request. */
+    public void restoreParses() {
+        if (!getParses().isEmpty()) return;
+        try {
+            Config saved = getConfig();
+            if (TextUtils.isEmpty(saved.getJson())) return;
+            JsonObject object = Json.parse(saved.getJson()).getAsJsonObject();
+            List<Parse> restored = new ArrayList<>();
+            for (JsonElement element : Json.safeListElement(object, "parses")) {
+                Parse item = Parse.objectFrom(element);
+                if (!restored.contains(item)) restored.add(item);
+            }
+            if (restored.isEmpty()) return;
+            restored.add(0, Parse.god());
+            for (Parse item : restored) item.setActivated(item.getName().equals(saved.getParse()));
+            config = saved;
+            parses = restored;
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** Extension parsers need the same provider jar that normal playback initializes on Home. */
+    public void loadParseExtensions() {
+        Config saved = getConfig();
+        if (TextUtils.isEmpty(saved.getJson())) return;
+        JsonObject object = Json.parse(saved.getJson()).getAsJsonObject();
+        if (object.has("video")) object = object.getAsJsonObject("video");
+        BaseLoader.get().parseJar(Json.safeString(object, "spider"), true);
+    }
+
     public List<Parse> getParses() {
         return parses == null ? Collections.emptyList() : parses;
     }

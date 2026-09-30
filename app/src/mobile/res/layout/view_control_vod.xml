@@ -66,6 +66,16 @@
                 android:padding="8dp"
                 android:src="@drawable/ic_control_info" />
 
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/offline_cache"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:contentDescription="@string/offline_cache_episode"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="6dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/offline_download" />
+
             <ImageView
                 android:id="@+id/keep"
                 android:layout_width="wrap_content"

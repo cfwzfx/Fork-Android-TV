@@ -40,6 +40,9 @@ public class Func {
             case R.string.home_live:
                 this.drawable = R.drawable.ic_home_live;
                 break;
+            case R.string.offline_title:
+                this.drawable = R.drawable.offline_download;
+                break;
             case R.string.home_keep:
                 this.drawable = R.drawable.ic_home_keep;
                 break;

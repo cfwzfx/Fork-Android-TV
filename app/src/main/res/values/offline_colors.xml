@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="offline_background">#141820</color>
+    <color name="offline_surface">#202632</color>
+    <color name="offline_border">#354052</color>
+    <color name="offline_text">#F4F7FC</color>
+    <color name="offline_secondary">#A5B1C4</color>
+    <color name="offline_accent">#87CFFF</color>
+    <color name="offline_success">#8CDEC0</color>
+    <color name="offline_danger">#FFA8AA</color>
+</resources>

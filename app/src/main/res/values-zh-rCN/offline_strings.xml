@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_title">缓存</string>
+    <string name="offline_cache_episode">缓存本集</string>
+    <string name="offline_empty">还没有缓存的视频\n在播放页面点击“缓存本集”，即可保存完整一集</string>
+    <string name="offline_not_ready">请等待本集开始播放后再缓存</string>
+    <string name="offline_unsupported">该视频为直播、受保护或特殊播放来源，暂不支持离线缓存</string>
+    <string name="offline_preparing">正在准备整集缓存…</string>
+    <string name="offline_added">已加入缓存，可在“缓存”查看</string>
+    <string name="offline_exists">本集已有缓存任务，请在“缓存”查看</string>
+    <string name="offline_storage_error">无法读取缓存，请检查剩余存储空间后重试</string>
+    <string name="offline_prepare_error">准备缓存失败，请确认网络正常，并重新播放本集后再试</string>
+    <string name="offline_http_error">来源请求失败，地址可能已过期；可重试，或删除后重新播放本集并缓存</string>
+    <string name="offline_download_error">缓存失败，请检查网络和剩余空间后重试</string>
+    <string name="offline_notification">正在缓存视频，点击查看任务</string>
+    <string name="offline_waiting">等待网络或排队中</string>
+    <string name="offline_downloading">缓存中</string>
+    <string name="offline_completed">已完成</string>
+    <string name="offline_paused">已暂停</string>
+    <string name="offline_failed">缓存失败</string>
+    <string name="offline_removing">正在删除</string>
+    <string name="offline_pause">暂停</string>
+    <string name="offline_continue">继续</string>
+    <string name="offline_retry">重试</string>
+    <string name="offline_play">播放</string>
+    <string name="offline_delete">删除</string>
+    <string name="offline_delete_question">删除“%1$s”及其缓存的视频数据？</string>
+    <string name="offline_cancel">取消</string>
+    <string name="offline_back">返回</string>
+    <string name="offline_missing">本集缓存尚未完成或已被删除</string>
+    <string name="offline_play_error">离线视频无法播放，缓存数据可能已损坏，请重新缓存</string>
+    <string name="offline_load_error">无法读取缓存列表</string>
+    <string name="offline_video_title" translatable="false">%1$s · %2$s</string>
+    <string name="offline_subtitle">整集保存，随时离线观看</string>
+    <string name="offline_summary">已完成 %1$d · 未完成 %2$d · 已占用 %3$s</string>
+    <string name="offline_loading">正在读取缓存…</string>
+    <string name="offline_close">关闭缓存列表</string>
+    <string name="offline_danmaku_missing">缺少原始播放信息，请在线播放此集后重新缓存</string>
+    <string name="offline_danmaku_searching">正在云搜弹幕…</string>
+    <string name="offline_danmaku_error">未获取到弹幕，请检查网络和云搜服务</string>
+    <string name="offline_group_summary">%1$d 集 · %2$d 已完成 · %3$s</string>
+    <string name="offline_expand">展开 %1$s</string>
+    <string name="offline_collapse">折叠 %1$s</string>
+</resources>

@@ -140,7 +140,9 @@ public class ControlDialog extends BaseDialog implements ParseAdapter.OnClickLis
         binding.parse.setHasFixedSize(true);
         binding.parse.setItemAnimator(null);
         binding.parse.addItemDecoration(new SpaceItemDecoration(8));
-        binding.parse.setAdapter(new ParseAdapter(this, ViewType.LIGHT));
+        ParseAdapter adapter = new ParseAdapter(this, ViewType.LIGHT);
+        adapter.reload();
+        binding.parse.setAdapter(adapter);
     }
 
     private void setScale(View view) {

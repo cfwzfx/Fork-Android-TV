@@ -56,6 +56,11 @@ public class Parse {
         return parse;
     }
 
+    public boolean isDanmaku() {
+        String label = getName().toLowerCase(java.util.Locale.ROOT);
+        return label.contains("弹幕") || label.contains("彈幕") || label.contains("danmaku");
+    }
+
     public String getName() {
         return TextUtils.isEmpty(name) ? "" : name;
     }

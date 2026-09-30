@@ -14,6 +14,7 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.viewbinding.ViewBinding;
 
+import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.databinding.DialogDanmakuBinding;
 import com.fongmi.android.tv.player.Players;
@@ -61,8 +62,11 @@ public final class DanmakuDialog extends BaseDialog implements DanmakuAdapter.On
         binding.recycler.setVisibility(adapter.getItemCount() == 0 ? View.GONE : View.VISIBLE);
 
         // todo cf 弹幕
-        binding.refresh.setOnClickListener(v -> {
-            if (adapter.getSelected() == (player.getDanmakus().size() - 1)) {
+        View refresh = binding.getRoot().findViewById(R.id.refresh);
+        if (refresh != null) refresh.setOnClickListener(v -> {
+            if (player.getDanmakus() == null || player.getDanmakus().isEmpty()
+                    || adapter.getSelected() >= player.getDanmakus().size()
+                    || player.getDanmakus().get(adapter.getSelected()).isEmpty()) {
                 Toast.makeText(v.getContext(), "请选择弹幕项，再点击刷新", Toast.LENGTH_SHORT).show();
                 return;
             }

@@ -20,6 +20,8 @@ import android.text.TextUtils;
 import androidx.annotation.NonNull;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
@@ -37,6 +39,7 @@ import com.fongmi.android.tv.bean.Channel;
 import com.fongmi.android.tv.bean.Danmaku;
 import com.fongmi.android.tv.bean.Drm;
 import com.fongmi.android.tv.bean.Result;
+import com.fongmi.android.tv.bean.Parse;
 import com.fongmi.android.tv.bean.Sub;
 import com.fongmi.android.tv.bean.Track;
 import com.fongmi.android.tv.event.ActionEvent;
@@ -64,6 +67,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import master.flame.danmaku.ui.widget.DanmakuView;
 
@@ -84,6 +88,8 @@ public class Players implements Player.Listener, ParseCallback {
     private ExoPlayer exoPlayer;
     private DanPlayer danPlayer;
     private ParseJob parseJob;
+    private ParseJob danmakuJob;
+    private String sourceResult = "";
     private PlayerView view;
     private VideoSize size;
     private List<Sub> subs;
@@ -93,6 +99,10 @@ public class Players implements Player.Listener, ParseCallback {
     private String url;
     private Drm drm;
     private Sub sub;
+
+    private MediaSource.Factory offlineFactory;
+    private MediaItem offlineItem;
+    private Consumer<Danmaku> onDanmakuChanged;
 
     private int decode;
     private int retry;
@@ -126,7 +136,7 @@ public class Players implements Player.Listener, ParseCallback {
     }
 
     private void setPlayer(PlayerView view) {
-        exoPlayer = new ExoPlayer.Builder(App.get()).setLoadControl(ExoUtil.buildLoadControl()).setTrackSelector(ExoUtil.buildTrackSelector()).setRenderersFactory(ExoUtil.buildRenderersFactory(isHard() ? EXTENSION_RENDERER_MODE_ON : EXTENSION_RENDERER_MODE_PREFER)).setMediaSourceFactory(ExoUtil.buildMediaSourceFactory()).build();
+        exoPlayer = new ExoPlayer.Builder(App.get()).setLoadControl(ExoUtil.buildLoadControl()).setTrackSelector(ExoUtil.buildTrackSelector()).setRenderersFactory(ExoUtil.buildRenderersFactory(isHard() ? EXTENSION_RENDERER_MODE_ON : EXTENSION_RENDERER_MODE_PREFER)).setMediaSourceFactory(offlineFactory == null ? ExoUtil.buildMediaSourceFactory() : offlineFactory).build();
         exoPlayer.setAudioAttributes(AudioAttributes.DEFAULT, true);
         exoPlayer.addAnalyticsListener(new EventLogger());
         exoPlayer.setHandleAudioBecomingNoisy(true);
@@ -228,6 +238,7 @@ public class Players implements Player.Listener, ParseCallback {
     }
 
     public void clear() {
+        offlineItem = null;
         danmakus = null;
         headers = null;
         format = null;
@@ -367,7 +378,12 @@ public class Players implements Player.Listener, ParseCallback {
     public void toggleDecode() {
         decode = isHard() ? SOFT : HARD;
         Setting.putDecode(decode);
+        float speed = getSpeed();
+        long position = getPosition();
+        boolean playing = isPlaying();
         init(view);
+        setSpeed(speed);
+        if (isOffline()) { seekTo(position); exoPlayer.setPlayWhenReady(playing); }
     }
 
     public String getPositionTime(long time) {
@@ -438,6 +454,7 @@ public class Players implements Player.Listener, ParseCallback {
     }
 
     public void start(Channel channel, long timeout) {
+        useOnlineSource();
         if (channel.getDrm() != null && !FrameworkMediaDrm.isCryptoSchemeSupported(channel.getDrm().getUUID())) {
             ErrorEvent.drm(tag);
         } else if (channel.hasMsg()) {
@@ -452,6 +469,8 @@ public class Players implements Player.Listener, ParseCallback {
     }
 
     public void start(Result result, boolean useParse, long timeout) {
+        sourceResult = App.gson().toJson(result);
+        useOnlineSource();
         if (result.getDrm() != null && !FrameworkMediaDrm.isCryptoSchemeSupported(result.getDrm().getUUID())) {
             ErrorEvent.drm(tag);
         } else if (result.hasMsg()) {
@@ -475,6 +494,8 @@ public class Players implements Player.Listener, ParseCallback {
     }
 
     private void stopParse() {
+        if (danmakuJob != null) danmakuJob.stop();
+        danmakuJob = null;
         if (parseJob != null) parseJob.stop();
         parseJob = null;
     }
@@ -492,7 +513,75 @@ public class Players implements Player.Listener, ParseCallback {
         return subs;
     }
 
+    public String getSourceResult() {
+        return sourceResult;
+    }
+
+    public void searchDanmaku(Parse parse, Result source) {
+        if (source == null || source.getUrl().isEmpty()) {
+            Notify.show(R.string.offline_danmaku_missing);
+            return;
+        }
+        if (danmakuJob != null) danmakuJob.stop();
+        Notify.show(R.string.offline_danmaku_searching);
+        danmakuJob = ParseJob.create(new ParseCallback() {
+            @Override public void onParseSuccess(Map<String, String> headers, String url, String from) {}
+            @Override public void onParseError() { Notify.show(R.string.offline_danmaku_error); }
+            @Override public void onParseDanmaku(List<Danmaku> items) {
+                if (danmakus == null) danmakus = new ArrayList<>();
+                for (Danmaku item : items) if (!danmakus.contains(item)) danmakus.add(item);
+                setDanmaku(items.get(0));
+            }
+        }).startDanmaku(source, parse);
+    }
+
+    public boolean isOffline() {
+        return offlineFactory != null;
+    }
+
+    public void startOffline(MediaItem item, MediaSource.Factory factory, List<Danmaku> comments,
+                             Consumer<Danmaku> changed) {
+        stopParse();
+        offlineItem = item;
+        offlineFactory = factory;
+        onDanmakuChanged = changed;
+        url = item.localConfiguration.uri.toString();
+        format = item.localConfiguration.mimeType;
+        headers = new HashMap<>();
+        drm = null;
+        sub = null;
+        subs = new ArrayList<>();
+        danmakus = new ArrayList<>(comments);
+        float speed = getSpeed();
+        init(view);
+        setSpeed(speed);
+    }
+
+    private void useOnlineSource() {
+        if (offlineFactory == null) return;
+        offlineFactory = null;
+        offlineItem = null;
+        onDanmakuChanged = null;
+        url = null;
+        init(view);
+    }
+
+    private void setOfflineMediaItem() {
+        MediaItem subtitles = ExoUtil.getMediaItem(getHeaders(), offlineItem.localConfiguration.uri,
+                format, null, checkSub(subs), decode);
+        exoPlayer.setMediaItem(offlineItem.buildUpon()
+                .setSubtitleConfigurations(subtitles.localConfiguration.subtitleConfigurations).build());
+        Danmaku current = Danmaku.empty();
+        for (Danmaku item : danmakus) if (item.isSelected()) { current = item; break; }
+        if (danPlayer != null) setDanmaku(current);
+        App.post(runnable, Constant.TIMEOUT_PLAY);
+        PlayerEvent.prepare(tag);
+        session.setActive(true);
+        prepare();
+    }
+
     private void setMediaItem() {
+        if (offlineItem != null) { setOfflineMediaItem(); return; }
         if (url != null) setMediaItem(headers, url, format, drm, subs, danmakus, Constant.TIMEOUT_PLAY);
     }
 
@@ -530,7 +619,8 @@ public class Players implements Player.Listener, ParseCallback {
         danPlayer.setDanmaku(item);
         if (danmakus == null) danmakus = new ArrayList<>();
         if (!item.isEmpty() && !danmakus.contains(item)) danmakus.add(0, item);
-        for (int i = 0; i < danmakus.size(); i++) danmakus.get(i).setSelected(danmakus.get(i).getUrl().equals(item.getUrl()) && !danmakus.get(i).isSelected());
+        for (int i = 0; i < danmakus.size(); i++) danmakus.get(i).setSelected(danmakus.get(i).getUrl().equals(item.getUrl()));
+        if (onDanmakuChanged != null) onDanmakuChanged.accept(item);
     }
 
     public void setDanmakuSize(float size) {

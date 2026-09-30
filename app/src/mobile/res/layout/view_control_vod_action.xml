@@ -99,6 +99,11 @@
             tools:visibility="visible" />
 
         <TextView
+            android:id="@+id/offline_list"
+            style="@style/Control.Action"
+            android:text="@string/offline_title" />
+
+        <TextView
             android:id="@+id/episodes"
             style="@style/Control.Action"
             android:text="@string/detail_episode" />

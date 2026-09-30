@@ -1,0 +1,18 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:layout_marginStart="8dp" android:layout_marginBottom="4dp"
+    android:background="@drawable/offline_card" android:orientation="vertical" android:padding="8dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <TextView android:id="@+id/offline_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="2" android:textColor="@color/offline_text" android:textSize="14sp" android:textStyle="bold" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:gravity="center_vertical">
+                <TextView android:id="@+id/offline_episode" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxWidth="140dp" android:ellipsize="end" android:maxLines="1" android:textColor="@color/offline_secondary" android:textSize="10sp" />
+                <TextView android:id="@+id/offline_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="6dp" android:textColor="@color/offline_accent" android:textSize="10sp" />
+            </LinearLayout>
+            <TextView android:id="@+id/offline_detail" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/offline_secondary" android:textSize="10sp" />
+        </LinearLayout>
+        <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/offline_action" android:layout_width="44dp" android:layout_height="44dp" android:layout_marginStart="8dp" android:background="@drawable/offline_button_primary" android:padding="11dp" android:tint="#101B23" android:focusable="true" />
+        <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/offline_delete" android:layout_width="44dp" android:layout_height="44dp" android:layout_marginStart="6dp" android:background="@drawable/offline_button_secondary" android:src="@drawable/offline_delete" android:padding="11dp" android:tint="@color/offline_danger" android:contentDescription="@string/offline_delete" android:focusable="true" />
+    </LinearLayout>
+    <ProgressBar android:id="@+id/offline_progress" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="2dp" android:layout_marginTop="4dp" android:indeterminateTint="@color/offline_accent" android:max="100" android:progressBackgroundTint="@color/offline_border" android:progressTint="@color/offline_accent" />
+</LinearLayout>

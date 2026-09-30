@@ -38,6 +38,8 @@ import com.bumptech.glide.request.transition.Transition;
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.Constant;
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.offline.OfflineIntegration;
+import com.fongmi.android.tv.offline.OfflinePlayback;
 import com.fongmi.android.tv.Setting;
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.bean.CastVideo;
@@ -134,6 +136,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     private List<String> mBroken;
     private History mHistory;
     private Players mPlayers;
+    private OfflinePlayback mOffline;
     private boolean fullscreen;
     private boolean initAuto;
     private boolean autoMode;
@@ -220,7 +223,12 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         return getKey().concat(AppDatabase.SYMBOL).concat(getId()).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
     }
 
+    private boolean isOffline() {
+        return OfflinePlayback.isOffline(getIntent());
+    }
+
     private Site getSite() {
+        if (mOffline != null) return mOffline.site();
         return VodConfig.get().getSite(getKey());
     }
 
@@ -272,7 +280,8 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         String id = Objects.toString(intent.getStringExtra("id"), "");
         if (TextUtils.isEmpty(id) || id.equals(getId())) return;
         mBinding.swipeLayout.setRefreshing(true);
-        getIntent().putExtras(intent);
+        if (mOffline != null) { mOffline.save(mHistory); mOffline.close(); mOffline = null; }
+        setIntent(intent);
         stopSearch();
         setOrient();
         checkId();
@@ -308,6 +317,14 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     @Override
     @SuppressLint("ClickableViewAccessibility")
     protected void initEvent() {
+        mBinding.control.offlineCache.setOnClickListener(view -> {
+            if (mBinding.widget.progress.getVisibility() == View.VISIBLE || mBinding.widget.error.getVisibility() == View.VISIBLE) {
+                Notify.show(R.string.offline_not_ready);
+                return;
+            }
+            OfflineIntegration.cacheCurrent(this, mPlayers, mHistory);
+        });
+        mBinding.control.offlineCache.setOnLongClickListener(view -> { OfflineIntegration.open(this); return true; });
         mBinding.name.setOnClickListener(view -> onName());
         mBinding.more.setOnClickListener(view -> onMore());
         mBinding.actor.setOnClickListener(view -> onActor());
@@ -354,6 +371,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
 
         // todo cf 弹幕
         mBinding.control.action.danmakucontrol.setOnClickListener(view -> onDanmakuControl());
+        mBinding.control.action.offlineList.setOnClickListener(view -> OfflineIntegration.showPanel(this));
     }
 
     private void setRecyclerView() {
@@ -428,10 +446,17 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     }
 
     private void getDetail() {
+        if (isOffline()) {
+            if (mOffline == null) mOffline = new OfflinePlayback(this);
+            mOffline.loadDetail(this::setDetail);
+            return;
+        }
         mViewModel.detailContent(getKey(), getId());
     }
 
     private void getDetail(Vod item) {
+        if (mOffline != null) { mOffline.save(mHistory); mOffline.close(); mOffline = null; }
+        getIntent().removeExtra("offline_id");
         getIntent().putExtra("key", item.getSiteKey());
         getIntent().putExtra("pic", item.getVodPic());
         getIntent().putExtra("id", item.getVodId());
@@ -445,6 +470,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     }
 
     private void setDetail(Result result) {
+        if (isOffline()) return;
         mBinding.swipeLayout.setRefreshing(false);
         if (result.getList().isEmpty()) setEmpty(result.hasMsg());
         else setDetail(result.getList().get(0));
@@ -534,21 +560,30 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     }
 
     private void getPlayer(Flag flag, Episode episode, boolean replay) {
+        mParseAdapter.reload();
         mBinding.control.title.setText(getString(R.string.detail_title, mBinding.name.getText(), episode.getName()));
-        mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl());
+        if (!isOffline()) mViewModel.playerContent(getKey(), flag.getFlag(), episode.getUrl());
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         mBinding.control.title.setSelected(true);
         updateHistory(episode, replay);
         showProgress();
         setMetadata();
+        if (isOffline()) {
+            setUseParse(false);
+            mBinding.control.parse.setVisibility(isFullscreen() && VodConfig.hasParse() ? View.VISIBLE : View.GONE);
+            setQualityVisible(false);
+            mPlayers.setKey(mHistory.getKey());
+            mOffline.play(episode, mPlayers, () -> showError(getString(R.string.offline_missing)));
+        }
     }
 
     private void setPlayer(Result result) {
+        if (isOffline()) return;
         result.getUrl().set(mQualityAdapter.getPosition());
         if (!result.getDesc().isEmpty()) setText(mBinding.content, R.string.detail_content, result.getDesc());
         setUseParse(VodConfig.hasParse() && ((result.getPlayUrl().isEmpty() && VodConfig.get().getFlags().contains(result.getFlag())) || result.getJx() == 1));
-        if (mControlDialog != null && mControlDialog.isVisible()) mControlDialog.setParseVisible(isUseParse());
-        mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() ? View.VISIBLE : View.GONE);
+        if (mControlDialog != null && mControlDialog.isVisible()) mControlDialog.setParseVisible(isUseParse() || VodConfig.hasParse());
+        mBinding.control.parse.setVisibility(isFullscreen() && (isUseParse() || VodConfig.hasParse()) ? View.VISIBLE : View.GONE);
         mPlayers.start(result, isUseParse(), getSite().isChangeable() ? getSite().getTimeout() : -1);
         setQualityVisible(result.getUrl().isMulti());
         mBinding.swipeLayout.setRefreshing(false);
@@ -594,6 +629,11 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
 
     @Override
     public void onItemClick(Parse item) {
+        if (isOffline() || item.isDanmaku()) {
+            mPlayers.searchDanmaku(item, mOffline == null ? Result.objectFrom(mPlayers.getSourceResult()) : mOffline.source());
+            return;
+        }
+        if (isOffline()) return;
         setParse(item);
         onRefresh();
     }
@@ -718,7 +758,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     }
 
     private void onSetting() {
-        mControlDialog = ControlDialog.create().parent(mBinding).history(mHistory).player(mPlayers).parse(isUseParse()).show(this);
+        mControlDialog = ControlDialog.create().parent(mBinding).history(mHistory).player(mPlayers).parse(isUseParse() || VodConfig.hasParse()).show(this);
     }
 
     private void onLock() {
@@ -958,7 +998,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         mBinding.control.right.rotate.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
         mBinding.control.keep.setVisibility(mHistory == null || isFullscreen() ? View.GONE : View.VISIBLE);
         mBinding.control.right.back.setVisibility(isFullscreen() && !isLock() ? View.VISIBLE : View.GONE);
-        mBinding.control.parse.setVisibility(isFullscreen() && isUseParse() ? View.VISIBLE : View.GONE);
+        mBinding.control.parse.setVisibility(isFullscreen() && (isUseParse() || VodConfig.hasParse()) ? View.VISIBLE : View.GONE);
         mBinding.control.action.getRoot().setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(mPlayers.isEmpty() ? View.GONE : View.VISIBLE);
@@ -1022,10 +1062,10 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     }
 
     private void checkHistory(Vod item) {
-        mHistory = History.find(getHistoryKey());
+        mHistory = mOffline == null ? History.find(getHistoryKey()) : mOffline.history();
         mHistory = mHistory == null ? createHistory(item) : mHistory;
         if (!TextUtils.isEmpty(getMark())) mHistory.setVodRemarks(getMark());
-        if (Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
+        if (!isOffline() && Setting.isIncognito() && mHistory.getKey().equals(getHistoryKey())) mHistory.delete();
         mBinding.control.action.opening.setText(mHistory.getOpening() <= 0 ? getString(R.string.play_op) : mPlayers.stringToTime(mHistory.getOpening()));
         mBinding.control.action.ending.setText(mHistory.getEnding() <= 0 ? getString(R.string.play_ed) : mPlayers.stringToTime(mHistory.getEnding()));
         mBinding.control.action.speed.setText(mPlayers.setSpeed(mHistory.getSpeed()));
@@ -1117,7 +1157,10 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         long position, duration;
         mHistory.setPosition(position = mPlayers.getPosition());
         mHistory.setDuration(duration = mPlayers.getDuration());
-        if (position >= 0 && duration > 0 && !Setting.isIncognito()) App.execute(() -> mHistory.update());
+        if (position >= 0 && duration > 0 && !Setting.isIncognito()) {
+            if (mOffline != null) mOffline.save(mHistory);
+            else App.execute(() -> mHistory.update());
+        }
         if (mHistory.getEnding() > 0 && duration > 0 && mHistory.getEnding() + position >= duration) {
             checkEnded(false);
         }
@@ -1227,6 +1270,11 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onErrorEvent(ErrorEvent event) {
         if (!event.getTag().equals(tag)) return;
+        if (isOffline()) {
+            showError(getString(R.string.offline_play_error));
+            mClock.setCallback(null);
+            return;
+        }
         if (mPlayers.retried()) onError(event);
         else onRefresh();
     }
@@ -1637,6 +1685,7 @@ public class VideoActivity extends BaseActivity implements Clock.Callback, Custo
         super.onDestroy();
         stopSearch();
         mClock.release();
+        if (mOffline != null) { mOffline.save(mHistory); mOffline.close(); }
         mPlayers.release();
         Timer.get().reset();
         RefreshEvent.history();
