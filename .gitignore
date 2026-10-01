@@ -1,10 +1,49 @@
-.idea
-.vscode
-.gradle
-.settings
-*build
+# IDE and local workspace metadata
+.idea/
+.vscode/
+.settings/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Gradle, Android and CMake generated directories (all modules)
+.gradle/
+.kotlin/
+build/
+.cxx/
+.externalNativeBuild/
+
+# APK exports outside module build directories
+/Release/
+/app/mobile*/release/
+/app/mobile*/debug/
+/app/leanback*/release/
+/app/leanback*/debug/
+*.apk
+*.aab
+*.apks
+
+# Generated website output; website sources remain tracked
+/docs/
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local SDK/interpreter paths and signing credentials
+local.properties
 *.jks
-*.properties
-lib-*.aar
-/Release
-/docs
+*.keystore
+
+# Temporary diagnostics and editor files
+*.log
+*.hprof
+*.tmp
+*.swp
+*.swo
+*~
+
+# app/libs AARs are required build inputs and must be versioned.
+# Do not ignore lib-*.aar or all *.properties: Gradle properties are project inputs.

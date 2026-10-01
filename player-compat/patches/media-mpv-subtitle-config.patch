@@ -1,0 +1,32 @@
+diff --git a/libraries/mpvplayer/src/main/java/androidx/media3/mpvplayer/MpvPlayer.java b/libraries/mpvplayer/src/main/java/androidx/media3/mpvplayer/MpvPlayer.java
+index 773b156..c79c445 100644
+--- a/libraries/mpvplayer/src/main/java/androidx/media3/mpvplayer/MpvPlayer.java
++++ b/libraries/mpvplayer/src/main/java/androidx/media3/mpvplayer/MpvPlayer.java
+@@ -264,6 +264,12 @@ public final class MpvPlayer extends SimpleBasePlayer {
+         new MpvPlayerConfig.Builder()
+             .addAndroidSubtitleOptions(applicationContext, checkNotNull(subtitleOptions))
+             .build();
++    setSubtitleConfig(config);
++  }
++
++  /** Applies app-owned subtitle properties without exposing native commands. */
++  public void setSubtitleConfig(MpvPlayerConfig config) {
++    checkNotNull(config);
+     runOnPlayerLooper(() -> subtitleController.setOptions(config));
+   }
+ 
+diff --git a/libraries/mpvplayer/src/main/java/androidx/media3/mpvplayer/trackselection/MpvTrackMapper.java b/libraries/mpvplayer/src/main/java/androidx/media3/mpvplayer/trackselection/MpvTrackMapper.java
+index 5c6da1e..aa80aa1 100644
+--- a/libraries/mpvplayer/src/main/java/androidx/media3/mpvplayer/trackselection/MpvTrackMapper.java
++++ b/libraries/mpvplayer/src/main/java/androidx/media3/mpvplayer/trackselection/MpvTrackMapper.java
+@@ -192,6 +192,10 @@ final class MpvTrackMapper {
+   }
+ 
+   private static boolean isTrackSelected(Reader reader, int index, int id, int type) {
++    // Media3 exposes the primary text track; mpv selected also includes secondary-sid.
++    if (type == C.TRACK_TYPE_TEXT) {
++      return id == parseTrackId(reader.getString(TRACK_SID));
++    }
+     Boolean selected = reader.getBoolean(MpvTrackProperties.selected(index));
+     if (selected != null) {
+       return selected;

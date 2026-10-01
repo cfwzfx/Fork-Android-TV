@@ -34,12 +34,16 @@
 
 `app/src/main/` 為共用邏輯，`app/src/leanback/`、`app/src/mobile/` 為各自的 UI。模組清單見 [settings.gradle](settings.gradle)，SDK 與依賴版本見 [libs.versions.toml](gradle/libs.versions.toml)。
 
+目前本地適配的問題、修改原因、驗證結果與版本管理規則見 [當前狀態與修改記錄](CURRENT_STATUS.md)。
+
+一般 App 建置直接使用倉庫內的 AAR 和 `player-compat` 原始碼，**不需要額外 clone media、mpv、mpv-android 或 CatVodSpider 倉庫，也不需要先執行播放器重建腳本**。仍需安裝 JDK 21、SDK 37、NDK 29.0.14206865、CMake 3.22.1 和 Python 3.10；首次建置會下載正常的 Gradle、Maven 與 Python 套件依賴。
+
 ## Windows 建置
 
 先準備以下環境與檔案：
 
-- **JDK 21、Android SDK、Python 3.10**。SDK 平台版本依 `compileSdk` 設定；Python 可用 `py -3.10 --version` 確認，找不到時在 [chaquo/build.gradle](chaquo/build.gradle) 的 Python 區塊設定 `buildPython`。
-- **配套 AAR**：放入 `app/libs/`。`lib-*.aar` 未納入 Git，單純 clone 不包含完整播放器依賴。
+- **JDK 21、Android SDK、Python 3.10**。SDK 平台版本依 `compileSdk` 設定；Python 可用 `py -3.10 --version` 確認。若建置找不到 Python，可在根目錄的 `local.properties` 加入 `python.buildPython=C:/Python310/python.exe`，指向本機的 Python 3.10 執行檔。
+- **配套 AAR**：`app/libs/` 的 25 個 AAR 已納入版本管理，包含目前適配的播放器依賴；檔案來源及 SHA-256 見 [制品清單](app/libs/artifacts.json)。一般建置直接使用這些檔案，重編譯播放器的方式見 [播放器適配說明](player-compat/README.md)。
 - **自己的簽章檔與 `local.properties`**：在儲存庫根目錄建立下列設定，將所有範例值替換成自己的資料。
 
 ```properties

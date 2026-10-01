@@ -24,4 +24,5 @@ include ':app'
 include ':catvod'
 include ':chaquo'
 include ':quickjs'
+include ':player-compat'
 rootProject.name = "TV"

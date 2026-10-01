@@ -1,1 +1,2 @@
-lib-*.aar
+# All required library artifacts in this directory are versioned.
+# Build intermediates and APK outputs are ignored by the repository root rules.

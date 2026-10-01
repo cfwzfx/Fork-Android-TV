@@ -3,6 +3,9 @@ package com.fongmi.android.tv.player.mpv;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.MimeTypes;
+import androidx.media3.common.C;
+import java.util.ArrayList;
+import java.util.List;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.TrackSelectionOverride;
@@ -23,6 +26,7 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
     private final MpvPlayerEffect effect;
     private final MpvPlayer player;
     private PlaySpec spec;
+    private TrackSelectionOverride secondarySelection;
 
     public MpvPlayerEngine(int decode, Player.Listener listener) {
         this.player = MpvUtil.buildPlayer(decode, listener);
@@ -30,7 +34,7 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
         this.effect = new MpvPlayerEffect(player);
         this.player.setAudioOutputListener(effect::applyAudioEffect);
         this.player.addListener(this);
-        applySecondarySubtitleMode(SubtitleSetting.getSecondaryMode());
+        applySubtitleStyle();
     }
 
     public static boolean isAvailable() {
@@ -66,19 +70,35 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
 
     @Override
     public void applySubtitleStyle() {
-        MpvUtil.applySubtitleStyle(player);
+        int id = -1;
+        if (secondarySelection != null && !secondarySelection.trackIndices.isEmpty()) {
+            try { id = Integer.parseInt(secondarySelection.mediaTrackGroup.getFormat(secondarySelection.trackIndices.get(0)).id); }
+            catch (NumberFormatException ignored) { secondarySelection = null; }
+        }
+        MpvUtil.applySubtitleStyle(player, id);
     }
 
     @Override
     public SecondarySubtitleState getSecondarySubtitleState() {
-        return new SecondarySubtitleState(player.getPrimaryTextTrackSelectionOverride(), player.getSecondaryTextTrackSelectionOverride(), player.getSecondaryTextTrackSelectionOverrides(), player.isSecondaryTextTrackSuppressed());
+        TrackSelectionOverride primary = null;
+        List<TrackSelectionOverride> candidates = new ArrayList<>();
+        for (Tracks.Group group : player.getCurrentTracks().getGroups()) {
+            if (group.getType() != C.TRACK_TYPE_TEXT) continue;
+            for (int i = 0; i < group.length; i++) {
+                TrackSelectionOverride selection = new TrackSelectionOverride(group.getMediaTrackGroup(), i);
+                if (group.isTrackSelected(i) && primary == null) primary = selection;
+                if (group.isTrackSupported(i)) candidates.add(selection);
+            }
+        }
+        candidates.remove(primary);
+        boolean promoted = primary != null && primary.equals(secondarySelection);
+        return new SecondarySubtitleState(primary, promoted ? null : secondarySelection, candidates, promoted);
     }
 
     @Override
     public void setSecondarySubtitleSelection(@Nullable TrackSelectionOverride selection) {
-        int mode = SubtitleSetting.getSecondaryMode();
-        applySecondarySubtitleMode(mode);
-        if (mode != SubtitleSetting.SECONDARY_MODE_DEFAULT) player.setSecondaryTextTrackSelectionOverride(selection);
+        secondarySelection = selection;
+        applySubtitleStyle();
     }
 
     @Override
@@ -101,6 +121,8 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
     @Override
     public void start(PlaySpec spec, long startPositionMs) {
         this.spec = spec;
+        secondarySelection = null;
+        applySubtitleStyle();
         startInternal(startPositionMs);
     }
 
@@ -142,8 +164,4 @@ public class MpvPlayerEngine implements PlayerEngine, Player.Listener {
         return ErrorAction.RECOVERED;
     }
 
-    private void applySecondarySubtitleMode(int mode) {
-        if (mode == SubtitleSetting.SECONDARY_MODE_DEFAULT) player.resetSecondaryTextTrackSelection();
-        else player.setSecondaryTextTrackAutoSelectionEnabled(mode == SubtitleSetting.SECONDARY_MODE_AUTO);
-    }
 }

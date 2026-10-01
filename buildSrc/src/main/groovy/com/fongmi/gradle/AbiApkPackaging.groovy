@@ -41,9 +41,10 @@ class AbiApkPackaging {
     }
 
     private static void configureFinalizer(Project project, def android, def components, def variant, Object apkArtifact) {
+        def signingConfig = android.signingConfigs.findByName('release')
+        if (signingConfig?.storeFile == null || !signingConfig.keyAlias || !signingConfig.storePassword || !signingConfig.keyPassword) return
         def windows = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows')
         def buildToolsDir = components.sdkComponents.sdkDirectory.get().dir("build-tools/${android.buildToolsVersion}").asFile
-        def signingConfig = android.signingConfigs.release
         def finalizeTask = project.tasks.register("finalize${variant.name.capitalize()}Apks", FinalizeApksTask) { task ->
             task.zipalignFile.set(new File(buildToolsDir, windows ? 'zipalign.exe' : 'zipalign'))
             task.apksignerJar.set(new File(buildToolsDir, 'lib/apksigner.jar'))

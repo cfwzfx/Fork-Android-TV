@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(player_ass_bridge LANGUAGES CXX)
+add_library(player_ass_bridge SHARED ass_bridge.cpp)
+target_compile_features(player_ass_bridge PRIVATE cxx_std_17)
+target_compile_options(player_ass_bridge PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(player_ass_bridge PRIVATE android jnigraphics dl)

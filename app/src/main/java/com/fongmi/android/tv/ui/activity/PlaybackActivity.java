@@ -28,7 +28,7 @@ import androidx.media3.ui.PlayerSeekView;
 import androidx.media3.ui.PlayerView;
 import androidx.media3.ui.TimeBar;
 import androidx.media3.ui.danmaku.DanmakuConfig;
-import androidx.media3.ui.danmaku.DanmakuPlayerViewController;
+import com.fongmi.android.tv.player.danmaku.DanmakuViewAdapter;
 
 import com.fongmi.android.tv.R;
 import com.fongmi.android.tv.bean.Result;
@@ -51,7 +51,7 @@ import java.util.concurrent.TimeUnit;
 
 public abstract class PlaybackActivity extends BaseActivity implements MediaController.Listener, Player.Listener, ServiceConnection {
 
-    private final DanmakuPlayerViewController danmakuController = new DanmakuPlayerViewController();
+    private final DanmakuViewAdapter danmakuController = new DanmakuViewAdapter();
     private final List<ServiceReadyObserver<?>> serviceReadyObservers = new ArrayList<>();
     private final List<Runnable> foreverObserverRemovers = new ArrayList<>();
     private ListenableFuture<MediaController> mControllerFuture;
@@ -426,12 +426,13 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         playerView.setRender(PlayerSetting.getRender());
         danmakuController.setOkHttpClient(OkHttp.player());
         danmakuController.setEnabled(DanmakuSetting.isShow());
-        danmakuController.setConfig(DanmakuSetting.getConfig());
+        danmakuController.setConfig(DanmakuSetting.getConfig(getPlaybackKey()));
         SubtitleSetting.applyStyle(playerView.getSubtitleView());
     }
 
     private void syncDanmakuSource() {
         if (mService == null || !isOwner()) return;
+        danmakuController.setConfig(DanmakuSetting.getConfig(player().getKey()));
         danmakuController.setDataSource(player().getSelectedDanmakuUri());
     }
 
@@ -528,7 +529,10 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
         @Override
         public void onDanmakuSourceChanged(@Nullable Uri uri) {
-            if (isOwner()) danmakuController.setDataSource(uri);
+            if (isOwner()) {
+                danmakuController.setConfig(DanmakuSetting.getConfig(player().getKey()));
+                danmakuController.setDataSource(uri);
+            }
         }
 
         @Override

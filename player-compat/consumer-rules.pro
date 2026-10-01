@@ -1,0 +1,2 @@
+-keep class com.fongmi.android.tv.player.compat.NativeAss { *; }
+-keep class com.fongmi.android.tv.player.compat.NativeAss$Frame { *; }

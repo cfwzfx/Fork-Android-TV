@@ -20,7 +20,14 @@ public final class AndroidFontConfig {
 
     @Nullable
     public static synchronized File prepare() {
-        File output = Path.mpv(FONTS_CONF);
+        File shared = Path.mpv(FONTS_CONF);
+        File output = prepare(shared);
+        // Playback can start before shared-storage permission has been granted.
+        return output != null ? output : prepare(Path.files("player-fonts.conf"));
+    }
+
+    @Nullable
+    private static File prepare(File output) {
         if (Path.exists(output)) return output;
         try (FileOutputStream stream = new FileOutputStream(output, false)) {
             writeConfig(stream, Path.mpvCache());

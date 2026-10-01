@@ -1,0 +1,160 @@
+{
+  "recordedAt": "2026-10-01",
+  "mediaRepository": "https://github.com/FongMi/media",
+  "mediaBranch": "release-1.11.0-fongmi",
+  "mediaCommit": "3c2cbe8ac742c2fe15eff52f03eeb3b1b648848d",
+  "mediaPatch": "player-compat/patches/media-mpv-subtitle-config.patch",
+  "mediaPatchSha256": "cf04dc3f5869344f5ebafc9884d48eeeb3f5c53f6c7001d4cfe12170bf66696d",
+  "artifacts": [
+    {
+      "file": "forcetech-release.aar",
+      "sizeBytes": 2733162,
+      "sha256": "0fb6a1eff9ba4ccf85803bfb72c2d05f4bcacb5ba0b46e474bf9ffbb11e7b926",
+      "origin": "Existing repository artifact, unchanged from c616c0aa3"
+    },
+    {
+      "file": "hook-release.aar",
+      "sizeBytes": 5816,
+      "sha256": "50cb2376064781c79ec3708fe2c29d1c1efcec56cfb471b25172b433172cb9b7",
+      "origin": "Existing repository artifact, unchanged from c616c0aa3"
+    },
+    {
+      "file": "jianpian-release.aar",
+      "sizeBytes": 2770921,
+      "sha256": "f2e2e18e2ab8980d4755b188c3384b29e7d9a8973d5d7c10be3ed56224bd8702",
+      "origin": "Existing repository artifact, unchanged from c616c0aa3"
+    },
+    {
+      "file": "lib-common-release.aar",
+      "sizeBytes": 665440,
+      "sha256": "f835fd9dca0dd562e56430dc0861b468888dbb85301cff314753f1dcdd1fc186",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-container-release.aar",
+      "sizeBytes": 67910,
+      "sha256": "980e5bbb08359fa8103aa2c082b71ef739e161c8d6e018ead6fc78b703f61d23",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-database-release.aar",
+      "sizeBytes": 7197,
+      "sha256": "520e6f814e42a7d428db187ac073b453c0fcba0f4f5f4edd1cf33fafd2cfb740",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-datasource-okhttp-release.aar",
+      "sizeBytes": 9879,
+      "sha256": "67875d86e6339b75baf39c359b22da12ce1fce24f9d15b2144583c568bef742c",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-datasource-release.aar",
+      "sizeBytes": 182361,
+      "sha256": "01ca3ee28ec995eb143c740f3672413b5b3ec429be71565388bf7e265420c15b",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-datasource-rtmp-release.aar",
+      "sizeBytes": 4150,
+      "sha256": "b2550e023869c36e48b6d81f26c36a219eef3926ab9cd64ea24ecb6a942c51da",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-decoder-ffmpeg-release.aar",
+      "sizeBytes": 23417410,
+      "sha256": "dd6bc141fc2d230dacdf99a2721425253ae322f6ceb839e2851a194db7a2f07c",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-decoder-mpegh-release.aar",
+      "sizeBytes": 1349731,
+      "sha256": "4e666ef1bc7862d057d6fc3e05e4ebdf2cee3ba158af81e88a018738f6a38273",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-decoder-release.aar",
+      "sizeBytes": 19842,
+      "sha256": "3aba35e2bb7cbb930fbdaa22bc1c8d42b45ce5002d7a6a0901af9bfacbd44a6c",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-effect-release.aar",
+      "sizeBytes": 403456,
+      "sha256": "3e61c4875b593a04712fdffe599d6b88d78be89d6d7b45850731fa679568b1c0",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-exoplayer-dash-release.aar",
+      "sizeBytes": 150318,
+      "sha256": "107a799baf20951ae85144b3857d03cfd2cea47477df7e759b7289ba797f5464",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-exoplayer-hls-release.aar",
+      "sizeBytes": 272832,
+      "sha256": "b15159474508fff57d26426e0c86bf33f0ddafe42a32b2706d9154884956996e",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-exoplayer-release.aar",
+      "sizeBytes": 1792164,
+      "sha256": "6527da13a137bb02beda0b06fd913d44a2ec48faea69e301ebf2edef5183e388",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-exoplayer-rtsp-release.aar",
+      "sizeBytes": 165543,
+      "sha256": "4d9c19231d4a629c01ac601da1fbc452fea86fab87d0c709008cd307076d1952",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-exoplayer-smoothstreaming-release.aar",
+      "sizeBytes": 53726,
+      "sha256": "c3f9d0375a08bfe0ba6491d958f96a572cb6a4a10bb8113449cd8ee78ff75883",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-extractor-release.aar",
+      "sizeBytes": 1099488,
+      "sha256": "9f5d306cabf3118ae26417c02870200dd245da853f980cdc8d51b27db34accd9",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-mpvplayer-release.aar",
+      "sizeBytes": 14669866,
+      "sha256": "fc6521c2801be94dd057aec7f463abb1c2f83d7c2caff64c51bc5c9024486f8f",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-session-release.aar",
+      "sizeBytes": 956900,
+      "sha256": "5cc3711f21bfd98ebb9bc498d20e221bbb15edeaa9ac0b161334f0a337d17536",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-ui-danmaku-release.aar",
+      "sizeBytes": 116695,
+      "sha256": "43ca22377b8915695ec71a02accdd227e7ea77a6abc9edbd5eb69e2a3728b252",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "lib-ui-release.aar",
+      "sizeBytes": 369310,
+      "sha256": "da5b513a10aa6400703cb2d692ddb8b1c5a970aa31a47278fe8a38b6497dfae9",
+      "origin": "FongMi/media source build with local compatibility patch"
+    },
+    {
+      "file": "thunder-release.aar",
+      "sizeBytes": 4531591,
+      "sha256": "a0c212caa235d94011932e00efa5b85c388f678873d31226754a73aa19e88606",
+      "origin": "Existing repository artifact, unchanged from c616c0aa3"
+    },
+    {
+      "file": "tvbus-release.aar",
+      "sizeBytes": 17368,
+      "sha256": "8ff2a0085c585624ff6a0cd11a6d2d29e428e3bd328f7d8b1780a7bd5895b97d",
+      "origin": "Existing repository artifact, unchanged from c616c0aa3"
+    }
+  ]
+}

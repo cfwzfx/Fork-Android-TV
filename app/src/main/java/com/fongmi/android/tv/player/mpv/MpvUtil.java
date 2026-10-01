@@ -56,8 +56,8 @@ public final class MpvUtil {
         return player;
     }
 
-    public static void applySubtitleStyle(MpvPlayer player) {
-        player.setSubtitleOptions(buildSubtitleOptions());
+    public static void applySubtitleStyle(MpvPlayer player, int secondaryTrackId) {
+        player.setSubtitleConfig(buildSubtitleConfig(secondaryTrackId));
     }
 
     static List<String> getManagedOptionNames() {
@@ -78,7 +78,8 @@ public final class MpvUtil {
     private static MpvPlayerConfig buildConfig() {
         File cacheDir = Path.mpvCache();
         AndroidFontConfig.prepare();
-        MpvPlayerConfig.Builder builder = new MpvPlayerConfig.Builder().addConfigDirectory(Path.mpv()).addAndroidDefaults(buildAndroidOptions(cacheDir)).addTlsCaFileFromAsset(App.get(), ASSET_CA_FILE, Path.files(ASSET_CA_FILE)).addAndroidSubtitleOptions(App.get(), buildSubtitleOptions());
+        MpvPlayerConfig.Builder builder = new MpvPlayerConfig.Builder().addConfigDirectory(Path.mpv()).addAndroidDefaults(buildAndroidOptions(cacheDir)).addTlsCaFileFromAsset(App.get(), ASSET_CA_FILE, Path.files(ASSET_CA_FILE));
+        addSubtitleOptions(builder, -1);
         addPreloadOptions(builder);
         return builder.build();
     }
@@ -103,13 +104,32 @@ public final class MpvUtil {
         MpvSubtitleOptions.Builder builder = new MpvSubtitleOptions.Builder();
         if (SubtitleSetting.isPositionSet()) builder.setPosition(getSubtitlePosition());
         if (SubtitleSetting.isScaleApplied()) builder.setScale(SubtitleSetting.getAppliedScale());
-        if (SubtitleSetting.isSecondaryPositionSet()) builder.setSecondarySubtitlePosition(SubtitleSetting.getSecondaryPosition());
-        if (SubtitleSetting.isStyleForced()) builder.setSecondaryAssStyleOverride(true);
-        String fontFamily = SubtitleSetting.getFontFamily();
-        if (fontFamily != null) builder.setFontFamily(fontFamily).setFontsDirectory(ExternalFont.getDirectory().getAbsolutePath());
         if (SubtitleSetting.isCustomStyle()) builder.setCustomStyle(SubtitleSetting.getTextColor(), SubtitleSetting.getBackgroundColor(), SubtitleSetting.getEdgeType(), SubtitleSetting.getEdgeColor(), SubtitleSetting.getEdgeWidth(), SubtitleSetting.getShadow());
         else if (SubtitleSetting.isSystemStyle()) builder.setSystemCaptionStyle();
         return builder.build();
+    }
+
+    private static MpvPlayerConfig buildSubtitleConfig(int secondaryTrackId) {
+        MpvPlayerConfig.Builder builder = new MpvPlayerConfig.Builder();
+        addSubtitleOptions(builder, secondaryTrackId);
+        return builder.build();
+    }
+
+    private static void addSubtitleOptions(MpvPlayerConfig.Builder builder, int secondaryTrackId) {
+        builder.addAndroidSubtitleOptions(App.get(), buildSubtitleOptions());
+        String family = SubtitleSetting.getFontFamily();
+        if (family != null) {
+            builder.addSubtitleStringOption("sub-font", family);
+            builder.addSubtitleStringOption("sub-fonts-dir", ExternalFont.getDirectory().getAbsolutePath());
+            builder.addSubtitleStringOption("sub-ass-style-overrides", "FontName=" + family);
+            builder.addSubtitleStringOption("sub-ass-override", "force");
+        }
+        if (SubtitleSetting.isSecondaryPositionSet()) builder.addSubtitleDoubleOption("secondary-sub-pos", SubtitleSetting.getSecondaryPosition());
+        if (SubtitleSetting.isStyleForced()) builder.addSubtitleStringOption("secondary-sub-ass-override", "force");
+        int mode = SubtitleSetting.getSecondaryMode();
+        if (mode != SubtitleSetting.SECONDARY_MODE_DEFAULT) {
+            builder.addSubtitleStringOption("secondary-sid", mode == SubtitleSetting.SECONDARY_MODE_OFF ? "no" : secondaryTrackId < 0 ? "auto" : String.valueOf(secondaryTrackId));
+        }
     }
 
     private static double getSubtitlePosition() {

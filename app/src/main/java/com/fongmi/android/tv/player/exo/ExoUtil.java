@@ -23,7 +23,6 @@ import androidx.media3.exoplayer.analytics.PlayerId;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.AudioTrackAudioOutputProvider;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
-import androidx.media3.exoplayer.libass.LibassPlaybackSession;
 import androidx.media3.exoplayer.source.preload.DefaultPreloadManager;
 import androidx.media3.exoplayer.text.TextOutput;
 import androidx.media3.exoplayer.text.TextRenderer;
@@ -42,6 +41,7 @@ import com.fongmi.android.tv.setting.SpeedSetting;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 import java.util.stream.Collectors;
 
 public final class ExoUtil {
@@ -104,11 +104,11 @@ public final class ExoUtil {
     }
 
     static RenderersFactory buildRenderersFactory() {
-        return new ExoRenderersFactory(null, null, null);
+        return new ExoRenderersFactory(null, null, false, new ArrayList<>());
     }
 
-    static RenderersFactory buildRenderersFactory(AudioProcessor audioProcessor, TextOutput secondaryTextOutput, LibassPlaybackSession libassPlaybackSession) {
-        return new ExoRenderersFactory(audioProcessor, secondaryTextOutput, libassPlaybackSession);
+    static RenderersFactory buildRenderersFactory(AudioProcessor audioProcessor, TextOutput secondaryTextOutput, boolean nativeAss, List<AssSubtitleRenderer> assRenderers) {
+        return new ExoRenderersFactory(audioProcessor, secondaryTextOutput, nativeAss, assRenderers);
     }
 
     private static AudioSink buildAudioSink(Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams, @Nullable AudioProcessor audioProcessor) {
@@ -122,13 +122,15 @@ public final class ExoUtil {
 
         @Nullable private final AudioProcessor audioProcessor;
         @Nullable private final TextOutput secondaryTextOutput;
-        @Nullable private final LibassPlaybackSession libassPlaybackSession;
+        private final boolean nativeAss;
+        private final List<AssSubtitleRenderer> assRenderers;
 
-        private ExoRenderersFactory(@Nullable AudioProcessor audioProcessor, @Nullable TextOutput secondaryTextOutput, @Nullable LibassPlaybackSession libassPlaybackSession) {
+        private ExoRenderersFactory(@Nullable AudioProcessor audioProcessor, @Nullable TextOutput secondaryTextOutput, boolean nativeAss, List<AssSubtitleRenderer> assRenderers) {
             super(App.get());
             this.audioProcessor = audioProcessor;
             this.secondaryTextOutput = secondaryTextOutput;
-            this.libassPlaybackSession = libassPlaybackSession;
+            this.nativeAss = nativeAss;
+            this.assRenderers = assRenderers;
             setEnableDecoderFallback(true);
             setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON);
             setDolbyVisionOutputPolicy(DecodeSetting.getDolbyVisionOutputPolicy());
@@ -140,15 +142,22 @@ public final class ExoUtil {
         }
 
         @Override
-        protected void buildMiscellaneousRenderers(@NonNull Context context, @NonNull Handler eventHandler, int extensionRendererMode, @NonNull ArrayList<Renderer> out) {
-            super.buildMiscellaneousRenderers(context, eventHandler, extensionRendererMode, out);
-            if (libassPlaybackSession != null && libassPlaybackSession.isAvailable()) out.add(libassPlaybackSession.createClockRenderer());
-        }
-
-        @Override
         protected void buildTextRenderers(@NonNull Context context, @NonNull TextOutput output, @NonNull Looper outputLooper, int extensionRendererMode, @NonNull ArrayList<Renderer> out) {
-            super.buildTextRenderers(context, output, outputLooper, extensionRendererMode, out);
-            if (secondaryTextOutput != null) out.add(new TextRenderer(secondaryTextOutput, outputLooper));
+            TextRenderer primary = new TextRenderer(output, outputLooper);
+            primary.experimentalSetLegacyDecodingEnabled(true);
+            out.add(primary);
+            if (nativeAss) addAssRenderer(output, outputLooper, false, out);
+            if (secondaryTextOutput != null) {
+                TextRenderer secondary = new TextRenderer(secondaryTextOutput, outputLooper);
+                secondary.experimentalSetLegacyDecodingEnabled(true);
+                out.add(secondary);
+                if (nativeAss) addAssRenderer(secondaryTextOutput, outputLooper, true, out);
+            }
+        }
+        private void addAssRenderer(TextOutput output, Looper looper, boolean secondary, ArrayList<Renderer> out) {
+            AssSubtitleRenderer renderer = new AssSubtitleRenderer(output, looper, secondary);
+            assRenderers.add(renderer);
+            out.add(renderer);
         }
     }
 }

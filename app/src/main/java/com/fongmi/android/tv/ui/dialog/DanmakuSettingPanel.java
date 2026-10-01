@@ -81,9 +81,18 @@ final class DanmakuSettingPanel {
         return player != null && !player.isReleased();
     }
 
+    private String historyKey() {
+        return isPlayerAvailable() ? player.getKey() : null;
+    }
+
+    private void resetTiming() {
+        DanmakuSetting.resetTiming();
+        if (historyKey() != null) DanmakuSetting.putTimeOffsetMs(historyKey(), 0L);
+    }
+
     private void bindTiming() {
         var timing = binding.timing;
-        setupMs(timing.timeOffsetSlider, timing.timeOffsetValue, DanmakuSetting.getTimeOffsetMs(), DanmakuSetting::putTimeOffsetMs);
+        setupMs(timing.timeOffsetSlider, timing.timeOffsetValue, DanmakuSetting.getTimeOffsetMs(historyKey()), value -> DanmakuSetting.putTimeOffsetMs(historyKey(), value));
         setupMs(timing.durationSlider, timing.durationValue, DanmakuSetting.getDurationMs(), DanmakuSetting::putDurationMs);
         setupMs(timing.fixedDurationSlider, timing.fixedDurationValue, DanmakuSetting.getFixedDurationMs(), DanmakuSetting::putFixedDurationMs);
     }
@@ -143,7 +152,7 @@ final class DanmakuSettingPanel {
                 applyConfig();
                 break;
             case 1:
-                DanmakuSetting.resetTiming();
+                resetTiming();
                 bindTiming();
                 applyConfig();
                 break;
@@ -170,7 +179,7 @@ final class DanmakuSettingPanel {
 
     private void resetAll() {
         DanmakuSetting.resetAppearance();
-        DanmakuSetting.resetTiming();
+        resetTiming();
         DanmakuSetting.resetDensity();
         DanmakuSetting.resetDisplay();
         bindAppearance();
@@ -220,7 +229,7 @@ final class DanmakuSettingPanel {
     }
 
     private void applyConfig() {
-        if (isPlayerAvailable()) player.setDanmakuConfig(DanmakuSetting.getConfig());
+        if (isPlayerAvailable()) player.setDanmakuConfig(DanmakuSetting.getConfig(player.getKey()));
     }
 
     private int styleChipForMode(int mode) {

@@ -9,6 +9,7 @@ import androidx.media3.ui.danmaku.DanmakuConfig;
 
 import com.fongmi.android.tv.api.config.VodConfig;
 import com.fongmi.android.tv.player.subtitle.ExternalFont;
+import com.fongmi.android.tv.player.danmaku.CustomConfigManager;
 import com.github.catvod.utils.Prefers;
 
 public class DanmakuSetting {
@@ -195,6 +196,17 @@ public class DanmakuSetting {
         return Math.clamp(Prefers.getLong("danmaku_time_offset", 0L), MIN_TIME_OFFSET_MS, MAX_TIME_OFFSET_MS);
     }
 
+    public static long getTimeOffsetMs(String historyKey) {
+        CustomConfigManager manager = CustomConfigManager.get();
+        // Legacy positive offsets advance the timeline; Media3 offsets delay presentation.
+        return manager.hasHistoryOffset(historyKey) ? -manager.getHistoryOffset(historyKey) * 1000L : getTimeOffsetMs();
+    }
+
+    public static void putTimeOffsetMs(String historyKey, long value) {
+        if (historyKey == null) putTimeOffsetMs(value);
+        else CustomConfigManager.get().addOrUpdateHistory(historyKey, -value / 1000L);
+    }
+
     public static void putTimeOffsetMs(long value) {
         Prefers.put("danmaku_time_offset", Math.clamp(value, MIN_TIME_OFFSET_MS, MAX_TIME_OFFSET_MS));
     }
@@ -216,15 +228,17 @@ public class DanmakuSetting {
     }
 
     public static int getMaxScrollLines() {
-        return Math.clamp(Prefers.getInt("danmaku_max_scroll_lines", 0), MIN_MAX_SCROLL_LINES, MAX_MAX_SCROLL_LINES);
+        return Math.clamp(Prefers.getInt("danmaku_max_scroll_lines", CustomConfigManager.get().getDanmuMaxLines()), MIN_MAX_SCROLL_LINES, MAX_MAX_SCROLL_LINES);
     }
 
     public static void putMaxScrollLines(int value) {
-        Prefers.put("danmaku_max_scroll_lines", Math.clamp(value, MIN_MAX_SCROLL_LINES, MAX_MAX_SCROLL_LINES));
+        int lines = Math.clamp(value, MIN_MAX_SCROLL_LINES, MAX_MAX_SCROLL_LINES);
+        Prefers.put("danmaku_max_scroll_lines", lines);
+        CustomConfigManager.get().setDanmuMaxLines(lines);
     }
 
     public static int getMaxTopLines() {
-        return Math.clamp(Prefers.getInt("danmaku_max_top_lines", 0), MIN_MAX_FIXED_LINES, MAX_MAX_FIXED_LINES);
+        return Math.clamp(Prefers.getInt("danmaku_max_top_lines", 2), MIN_MAX_FIXED_LINES, MAX_MAX_FIXED_LINES);
     }
 
     public static void putMaxTopLines(int value) {
@@ -232,7 +246,7 @@ public class DanmakuSetting {
     }
 
     public static int getMaxBottomLines() {
-        return Math.clamp(Prefers.getInt("danmaku_max_bottom_lines", 0), MIN_MAX_FIXED_LINES, MAX_MAX_FIXED_LINES);
+        return Math.clamp(Prefers.getInt("danmaku_max_bottom_lines", 2), MIN_MAX_FIXED_LINES, MAX_MAX_FIXED_LINES);
     }
 
     public static void putMaxBottomLines(int value) {
@@ -362,6 +376,14 @@ public class DanmakuSetting {
     }
 
     public static DanmakuConfig getConfig() {
+        return getConfig(getTimeOffsetMs());
+    }
+
+    public static DanmakuConfig getConfig(String historyKey) {
+        return getConfig(getTimeOffsetMs(historyKey));
+    }
+
+    private static DanmakuConfig getConfig(long offsetMs) {
         return new DanmakuConfig.Builder()
                 .setTextScale(getTextScale())
                 .setTransparency(getTransparency())
@@ -376,7 +398,7 @@ public class DanmakuSetting {
                 .setColorMode(getColorMode())
                 .setDurationMs(getDurationMs())
                 .setFixedDurationMs(getFixedDurationMs())
-                .setTimeOffsetMs(getTimeOffsetMs())
+                .setTimeOffsetMs(offsetMs)
                 .setMaxOnScreen(getMaxOnScreen())
                 .setScrollAreaRatio(getScrollAreaRatio())
                 .setScrollGapRatio(getScrollGapRatio())
