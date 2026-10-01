@@ -13,6 +13,7 @@ import com.fongmi.android.tv.R;
 /** Shared touch/remote page, backed by the same task list as the playback side sheet. */
 public final class OfflineCacheActivity extends AppCompatActivity {
     private OfflineCacheList list;
+    private java.io.Closeable sync;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -22,6 +23,7 @@ public final class OfflineCacheActivity extends AppCompatActivity {
         applyInsets(root);
         findViewById(R.id.offline_back).setOnClickListener(v -> finish());
         list = new OfflineCacheList(this, root);
+        sync = OfflineSyncEntry.install(this, root);
     }
 
     static void applyInsets(View root) {
@@ -49,6 +51,7 @@ public final class OfflineCacheActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (sync != null) try { sync.close(); } catch (java.io.IOException ignored) {}
         list.close();
         super.onDestroy();
     }

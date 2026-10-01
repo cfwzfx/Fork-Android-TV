@@ -1,0 +1,17 @@
+<resources>
+    <string name="offline_sync">局域网同步缓存</string>
+    <string name="offline_sync_empty">仅支持同步已完成的缓存</string>
+    <string name="offline_sync_select">选择已完成的缓存集数</string>
+    <string name="offline_sync_all">全选</string>
+    <string name="offline_sync_device">选择设备</string>
+    <string name="offline_sync_search">搜索同一局域网的手机（对方需打开应用）</string>
+    <string name="offline_sync_refresh">重新搜索</string>
+    <string name="offline_sync_preparing">正在检查缓存文件…</string>
+    <string name="offline_sync_to">同步到 %1$s</string>
+    <string name="offline_sync_progress">%1$d / %2$d · %3$s\n%4$s / %5$s</string>
+    <string name="offline_sync_result">成功同步 %1$d 集 · 跳过已有任务 %2$d 集</string>
+    <string name="offline_sync_cancelled">同步已取消，已完成的集数保留</string>
+    <string name="offline_sync_error">同步失败。两台手机需使用支持此功能的版本，并保持应用打开、连接同一局域网；请检查剩余空间和源配置后重试。</string>
+    <string name="offline_sync_receiving">正在接收缓存：%1$s</string>
+    <string name="offline_sync_received">缓存接收完成：%1$s</string>
+</resources>

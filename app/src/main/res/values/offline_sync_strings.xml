@@ -1,0 +1,17 @@
+<resources>
+    <string name="offline_sync">Sync cache over LAN</string>
+    <string name="offline_sync_empty">Only completed caches can be synced</string>
+    <string name="offline_sync_select">Select completed episodes</string>
+    <string name="offline_sync_all">Select all</string>
+    <string name="offline_sync_device">Select device</string>
+    <string name="offline_sync_search">Phones on this LAN (keep the other app open)</string>
+    <string name="offline_sync_refresh">Search again</string>
+    <string name="offline_sync_preparing">Checking cached files…</string>
+    <string name="offline_sync_to">Sync to %1$s</string>
+    <string name="offline_sync_progress">%1$d / %2$d · %3$s\n%4$s / %5$s</string>
+    <string name="offline_sync_result">Synced %1$d · Existing tasks skipped %2$d</string>
+    <string name="offline_sync_cancelled">Sync cancelled; completed episodes are kept</string>
+    <string name="offline_sync_error">Sync failed. Both phones need this version and must stay open on the same LAN. Check storage and source configuration, then retry.</string>
+    <string name="offline_sync_receiving">Receiving cache: %1$s</string>
+    <string name="offline_sync_received">Cache received: %1$s</string>
+</resources>

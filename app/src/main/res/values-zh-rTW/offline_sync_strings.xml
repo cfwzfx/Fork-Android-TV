@@ -1,0 +1,17 @@
+<resources>
+    <string name="offline_sync">區域網路同步快取</string>
+    <string name="offline_sync_empty">僅支援同步已完成的快取</string>
+    <string name="offline_sync_select">選擇已完成的快取集數</string>
+    <string name="offline_sync_all">全選</string>
+    <string name="offline_sync_device">選擇裝置</string>
+    <string name="offline_sync_search">搜尋同一區域網路的手機（對方需開啟應用程式）</string>
+    <string name="offline_sync_refresh">重新搜尋</string>
+    <string name="offline_sync_preparing">正在檢查快取檔案…</string>
+    <string name="offline_sync_to">同步到 %1$s</string>
+    <string name="offline_sync_progress">%1$d / %2$d · %3$s\n%4$s / %5$s</string>
+    <string name="offline_sync_result">成功同步 %1$d 集 · 跳過已有任務 %2$d 集</string>
+    <string name="offline_sync_cancelled">同步已取消，已完成的集數保留</string>
+    <string name="offline_sync_error">同步失敗。兩台手機需使用支援此功能的版本，並保持應用程式開啟、連接同一區域網路；請檢查剩餘空間和來源設定後重試。</string>
+    <string name="offline_sync_receiving">正在接收快取：%1$s</string>
+    <string name="offline_sync_received">快取接收完成：%1$s</string>
+</resources>

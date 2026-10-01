@@ -85,7 +85,7 @@ public final class OfflineIntegration {
         String identity = OfflineVideo.identity(history);
         OfflineVideo video = new OfflineVideo(identity, history.getVodName(), history.getVodRemarks(),
                 history.getVodFlag(), url, config.mimeType, players.getHeaders(),
-                history.toString(), App.gson().toJson(players.getDanmakus()), players.getSourceResult());
+                history.toString(), App.gson().toJson(players.getDanmakus()), sourceWithSubtitles(players));
         TrackSelectionParameters.Builder selection = downloadParameters();
         if (format != null && format.width > 0 && format.height > 0) selection.setMaxVideoSize(format.width, format.height);
         if (format != null && format.bitrate > 0) selection.setMaxVideoBitrate(format.bitrate);
@@ -129,7 +129,16 @@ public final class OfflineIntegration {
 
     static TrackSelectionParameters.Builder downloadParameters() {
         return androidx.media3.exoplayer.offline.DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS.buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false);
+    }
+
+    private static String sourceWithSubtitles(PlayerManager players) {
+        if (players.getSourceResult().isEmpty() && players.getSubtitles().isEmpty()) return "";
+        try {
+            org.json.JSONObject source = players.getSourceResult().isEmpty() ? new org.json.JSONObject() : new org.json.JSONObject(players.getSourceResult());
+            source.put("subs", new org.json.JSONArray(App.gson().toJson(players.getSubtitles())));
+            return source.toString();
+        } catch (Exception error) { return players.getSourceResult(); }
     }
 
     private static void show(Context context, int message) {

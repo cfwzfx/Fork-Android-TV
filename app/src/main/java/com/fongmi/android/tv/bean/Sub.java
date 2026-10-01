@@ -17,6 +17,8 @@ public class Sub {
 
     @SerializedName("url")
     private String url;
+    @SerializedName("origin")
+    private String origin;
     @SerializedName("name")
     private String name;
     @SerializedName("lang")
@@ -50,6 +52,10 @@ public class Sub {
 
     public String getUrl() {
         return TextUtils.isEmpty(url) ? "" : url;
+    }
+
+    public String getOrigin() {
+        return TextUtils.isEmpty(origin) ? getUrl() : origin;
     }
 
     public String getName() {

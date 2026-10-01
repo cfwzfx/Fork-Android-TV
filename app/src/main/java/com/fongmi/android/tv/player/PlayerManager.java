@@ -100,6 +100,8 @@ public class PlayerManager implements ParseCallback {
 
     public void setSourceResult(Result result) { sourceResult = App.gson().toJson(result); }
 
+    public List<Sub> getSubtitles() { return spec == null || spec.getSubs() == null ? List.of() : List.copyOf(spec.getSubs()); }
+
     public void startOffline(MediaItem item, androidx.media3.exoplayer.source.MediaSource.Factory factory,
                              List<Danmaku> comments, java.util.function.Consumer<Danmaku> changed) {
         startOffline(item, factory, comments, changed, C.TIME_UNSET);
@@ -114,6 +116,15 @@ public class PlayerManager implements ParseCallback {
         offlineFactory = factory;
         offlineDanmakuChanged = changed;
         spec = PlaySpec.offline(item.mediaId, item, comments);
+        if (item.localConfiguration.tag instanceof String id) {
+            var preferences = App.get().getSharedPreferences("offline_playback", 0);
+            if (preferences.contains("danmakuSelected:" + id)) {
+                String selected = preferences.getString("danmakuSelected:" + id, "");
+                Danmaku current = spec.getSelectedDanmaku();
+                if (current != null) spec.toggleDanmaku(current);
+                spec.getDanmakus().stream().filter(value -> value.getUrl().equals(selected)).findFirst().ifPresent(spec::selectDanmaku);
+            }
+        }
         setMediaItem(Constant.TIMEOUT_PLAY, position);
     }
 
@@ -197,6 +208,10 @@ public class PlayerManager implements ParseCallback {
     }
 
     private void notifyDanmakuSourceChanged() {
+        if (isOffline() && offlineItem.localConfiguration.tag instanceof String id) {
+            Danmaku selected = spec == null ? null : spec.getSelectedDanmaku();
+            App.get().getSharedPreferences("offline_playback", 0).edit().putString("danmakuSelected:" + id, selected == null ? "" : selected.getUrl()).apply();
+        }
         if (offlineDanmakuChanged != null) offlineDanmakuChanged.accept(spec == null ? null : spec.getSelectedDanmaku());
         callback.onDanmakuSourceChanged(getSelectedDanmakuUri());
     }
@@ -352,7 +367,20 @@ public class PlayerManager implements ParseCallback {
 
     public void setSub(Sub sub) {
         if (sub == null || sub.isEmpty()) return;
+        if (isOffline() && offlineItem.localConfiguration.tag instanceof String id) {
+            MediaItem current = offlineItem;
+            com.fongmi.android.tv.offline.OfflineSubtitles.select(App.get(), id, sub, local -> {
+                if (offlineItem != current || engine == null || spec == null) return;
+                spec.setSub(local);
+                offlineItem = com.fongmi.android.tv.offline.OfflineSubtitles.attach(App.get(), id, current);
+                startCurrent();
+            }, error -> {
+                if (offlineItem == current) Notify.show(R.string.offline_subtitle_error);
+            });
+            return;
+        }
         if (spec != null) spec.setSub(sub);
+        if (spec != null) com.fongmi.android.tv.offline.OfflineSubtitles.saveForMedia(App.get(), spec.getKey(), spec.getUrl(), sub);
         if (engine.addSubtitle(sub)) play();
         else startCurrent();
     }
@@ -634,13 +662,22 @@ public class PlayerManager implements ParseCallback {
     @Nullable
     public Uri getSelectedDanmakuUri() {
         Danmaku item = spec != null ? spec.getSelectedDanmaku() : null;
-        return item == null ? null : item.getUri();
+        return item == null ? null : com.fongmi.android.tv.offline.OfflineDanmakuCache.playbackUri(item.getUrl());
     }
 
     public void setDanmaku(Danmaku item) {
         if (spec == null) return;
         spec.selectDanmaku(item);
         notifyDanmakuSourceChanged();
+        if (item != null && !item.isEmpty() && com.fongmi.android.tv.offline.OfflineDanmakuCache.isLocal(item.getUrl())) {
+            PlaySpec current = spec;
+            com.fongmi.android.tv.utils.Task.execute(() -> {
+                try {
+                    com.fongmi.android.tv.offline.OfflineDanmakuCache.saveLocal(item.getUrl());
+                    App.post(() -> { if (spec == current) notifyDanmakuSourceChanged(); });
+                } catch (java.io.IOException error) { App.post(() -> { if (spec == current) Notify.show(R.string.offline_danmaku_error); }); }
+            });
+        }
     }
 
     public void toggleDanmaku(Danmaku item) {

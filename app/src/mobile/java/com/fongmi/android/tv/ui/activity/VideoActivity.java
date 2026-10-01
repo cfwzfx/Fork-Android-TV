@@ -218,6 +218,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public String getHistoryKey() {
+        if (mOffline != null && mOffline.originalKey() != null) return mOffline.originalKey();
         return getKey().concat(AppDatabase.SYMBOL).concat(getId()).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
     }
 

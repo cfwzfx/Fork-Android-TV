@@ -26,6 +26,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -60,6 +61,481 @@ public class OfflineCacheTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(work);
     }
 
+    @Test
+    public void mobileCachePageOffersManualLanSync() {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        main(() -> {
+            int id = context.getResources().getIdentifier("offline_sync", "id", context.getPackageName());
+            assertTrue("Cache page must offer manual LAN sync", id != 0);
+            assertNotNull(screen.findViewById(id));
+            assertEquals(android.view.View.VISIBLE, screen.findViewById(id).getVisibility());
+        });
+    }
+
+    private OfflineVideo transferable(String path) {
+        com.fongmi.android.tv.bean.Config config = com.fongmi.android.tv.bean.Config.find("https://cache-sync.test/config.json", "同步测试源", 0);
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        history.cid(config.getId());
+        history.setEpisodeUrl("https://episode.test/" + UUID.randomUUID());
+        histories.add(history);
+        OfflineVideo video = new OfflineVideo(OfflineVideo.identity(history), history.getVodName(), history.getVodRemarks(), history.getVodFlag(),
+                server.url(path), null, Map.of("Cookie", "alpha"), history.toString(), "[]", "{\"parse\":0}");
+        ids.add(video.id);
+        return video;
+    }
+
+    @Test public void exportIncludesDanmakuAddedAfterDownload() throws Exception {
+        OfflineVideo video = transferable("a/sample.mp4");
+        add(video);
+        waitState(video.id, Download.STATE_COMPLETED);
+        String added = "[{\"name\":\"后加弹幕\",\"url\":\"https://comments.test/later.xml\"}]";
+        context.getSharedPreferences("offline_playback", 0).edit().putString("danmaku:" + video.id, added).commit();
+        OfflineCacheTransfer.Snapshot snapshot = new OfflineCacheTransfer(context, cache).export(video.id, () -> false);
+        assertEquals("Later imported or searched comments must be included", added, snapshot.manifest.getJSONObject("video").getString("danmaku"));
+    }
+
+    @Test public void hlsCacheIncludesBothIndependentSubtitleLanguages() throws Exception {
+        OfflineVideo video = transferable("a/hls/subtitles.m3u8");
+        add(video);
+        Download completed = waitState(video.id, Download.STATE_COMPLETED);
+        assertTrue("Chinese rendition must be downloaded", completed.request.streamKeys.stream().anyMatch(key -> key.groupIndex == 2 && key.streamIndex == 0));
+        assertTrue("English rendition must be downloaded", completed.request.streamKeys.stream().anyMatch(key -> key.groupIndex == 2 && key.streamIndex == 1));
+    }
+
+    private void subtitleCue(Download download, String language, String expected) throws Exception {
+        int requests = server.requests.get();
+        server.blocked = true;
+        CountDownLatch cue = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<androidx.media3.common.PlaybackException> error = new java.util.concurrent.atomic.AtomicReference<>();
+        androidx.media3.exoplayer.ExoPlayer[] player = new androidx.media3.exoplayer.ExoPlayer[1];
+        try {
+            main(() -> {
+                player[0] = new androidx.media3.exoplayer.ExoPlayer.Builder(context)
+                        .setMediaSourceFactory(new androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context).setDataSourceFactory(cache.playback(download))).build();
+                player[0].addListener(new Player.Listener() {
+                    @Override public void onCues(androidx.media3.common.text.CueGroup group) {
+                        if (group.cues.stream().anyMatch(value -> value.text != null && value.text.toString().contains(expected))) cue.countDown();
+                    }
+                    @Override public void onPlayerError(androidx.media3.common.PlaybackException value) { error.set(value); cue.countDown(); }
+                });
+                player[0].setTrackSelectionParameters(player[0].getTrackSelectionParameters().buildUpon().setPreferredTextLanguage(language).build());
+                player[0].setMediaItem(OfflineSubtitles.attach(context, download.request.id, download.request.toMediaItem()));
+                player[0].setVolume(0);
+                player[0].prepare(); player[0].play();
+            });
+            assertTrue("Cached subtitle must render: " + expected, cue.await(15, TimeUnit.SECONDS));
+            assertNull("Subtitle playback failed", error.get());
+            assertEquals("Subtitle rendering must not access the source", requests, server.requests.get());
+        } finally { main(() -> { if (player[0] != null) player[0].release(); }); }
+    }
+
+    @Test public void externalSubtitleSurvivesOriginalFileDeletionAndSync() throws Exception {
+        OfflineVideo base = transferable("a/sample.mp4");
+        File subtitle = File.createTempFile("cache-subtitle-", ".srt", context.getCacheDir());
+        try {
+            java.nio.file.Files.writeString(subtitle.toPath(), "1\n00:00:00,000 --> 00:00:03,000\nExternal cached subtitle\n");
+            com.fongmi.android.tv.bean.Sub sub = com.fongmi.android.tv.bean.Sub.from("本地字幕.srt", subtitle.toURI().toString(), "en", androidx.media3.common.MimeTypes.APPLICATION_SUBRIP);
+            OfflineVideo video = new OfflineVideo(OfflineVideo.identity(OfflineHistory.original(base)), base.title, base.episode, base.line, base.url, base.mimeType, base.headers, base.history, base.danmaku,
+                    "{\"parse\":0,\"subs\":[" + sub + "]}");
+            add(video);
+            Download completed = waitState(video.id, Download.STATE_COMPLETED);
+            assertEquals(1, OfflineSubtitles.saved(context, video.id).length());
+            assertEquals("Online and cached subtitle selection must use the same track identity",
+                    com.fongmi.android.tv.player.media.MediaItemFactory.buildSubConfig(sub).id,
+                    OfflineSubtitles.attach(context, video.id, completed.request.toMediaItem()).localConfiguration.subtitleConfigurations.get(0).id);
+            assertTrue(subtitle.delete());
+            subtitleCue(completed, "en", "External cached subtitle");
+            OfflineCacheTransfer transfer = new OfflineCacheTransfer(context, cache);
+            OfflineCacheTransfer.Snapshot snapshot = transfer.export(video.id, () -> false);
+            byte[] content = payload(snapshot);
+            String uri = snapshot.manifest.getJSONObject("playback").getJSONArray("subtitles").getJSONObject(0).getString("url");
+            removeAndWait(video.id);
+            assertFalse("Deleting a task must release its external subtitle", cache.storage().getKeys().contains(video.id + ":" + uri));
+            try (OfflineCacheTransfer.Import target = transfer.prepare(snapshot.manifest)) {
+                assertNotNull(target);
+                completed = target.receive(new java.io.ByteArrayInputStream(content), () -> false, bytes -> {});
+            }
+            assertEquals(1, OfflineSubtitles.saved(context, video.id).length());
+            subtitleCue(completed, "en", "External cached subtitle");
+            playOffline(completed, true);
+        } finally { subtitle.delete(); }
+    }
+
+    @Test public void syncedIndependentHlsSubtitlesRenderInBothLanguagesOffline() throws Exception {
+        OfflineVideo video = transferable("a/hls/subtitles.m3u8");
+        add(video);
+        waitState(video.id, Download.STATE_COMPLETED);
+        OfflineCacheTransfer transfer = new OfflineCacheTransfer(context, cache);
+        OfflineCacheTransfer.Snapshot snapshot = transfer.export(video.id, () -> false);
+        byte[] content = payload(snapshot);
+        removeAndWait(video.id);
+        Download imported;
+        try (OfflineCacheTransfer.Import target = transfer.prepare(snapshot.manifest)) {
+            assertNotNull(target);
+            imported = target.receive(new java.io.ByteArrayInputStream(content), () -> false, bytes -> {});
+        }
+        subtitleCue(imported, "zh", "缓存字幕");
+        subtitleCue(imported, "en", "Cached subtitles");
+    }
+
+    @Test public void subtitleImportedDuringOfflinePlaybackIsSavedForReopen() throws Exception {
+        OfflineVideo video = transferable("a/sample.mp4");
+        add(video);
+        Download download = waitState(video.id, Download.STATE_COMPLETED);
+        File subtitle = File.createTempFile("selected-subtitle-", ".srt", context.getCacheDir());
+        try {
+            java.nio.file.Files.writeString(subtitle.toPath(), "1\n00:00:00,000 --> 00:00:03,000\nSelected offline subtitle\n");
+            Player player = launchSharedPlayer(download);
+            main(() -> {
+                player.pause();
+                com.fongmi.android.tv.server.Server.get().getService().player().setSub(com.fongmi.android.tv.bean.Sub.from("导入.srt", subtitle.toURI().toString()));
+            });
+            long deadline = System.currentTimeMillis() + 10000;
+            while (OfflineSubtitles.saved(context, video.id).length() == 0 && System.currentTimeMillis() < deadline) Thread.sleep(100);
+            assertEquals("Manual offline subtitle selection must be persisted", 1, OfflineSubtitles.saved(context, video.id).length());
+            boolean[] attached = {false};
+            do {
+                main(() -> attached[0] = !player.getCurrentMediaItem().localConfiguration.subtitleConfigurations.isEmpty());
+                if (!attached[0]) Thread.sleep(100);
+            } while (!attached[0] && System.currentTimeMillis() < deadline);
+            assertTrue("Existing offline player must attach the saved subtitle", attached[0]);
+            main(() -> screen.finish());
+            assertTrue(subtitle.delete());
+            subtitleCue(download, "zh", "Selected offline subtitle");
+        } finally { subtitle.delete(); }
+    }
+
+    @Test public void syncedLocalDanmakuAndItsSelectionSurviveOriginalDeletion() throws Exception {
+        OfflineVideo video = transferable("a/sample.mp4");
+        add(video);
+        waitState(video.id, Download.STATE_COMPLETED);
+        File original = File.createTempFile("imported-comments-", ".xml", context.getCacheDir());
+        String url = original.toURI().toString();
+        File saved = OfflineDanmakuCache.saved(url);
+        byte[] xml = "<i><d p=\"1,1,25,16777215,0,0,0,0\">本地同步弹幕</d></i>".getBytes(StandardCharsets.UTF_8);
+        try {
+            java.nio.file.Files.write(original.toPath(), xml);
+            String comments = "[{\"name\":\"线上弹幕\",\"url\":\"https://comments.test/unused.xml\"},{\"name\":\"本地导入\",\"url\":\"" + url + "\"}]";
+            context.getSharedPreferences("offline_playback", 0).edit().putString("danmaku:" + video.id, comments).putString("danmakuSelected:" + video.id, url).commit();
+            OfflineCacheTransfer transfer = new OfflineCacheTransfer(context, cache);
+            OfflineCacheTransfer.Snapshot snapshot = transfer.export(video.id, () -> false);
+            byte[] content = payload(snapshot);
+            assertTrue(original.delete()); assertTrue(saved.delete());
+            removeAndWait(video.id);
+            Download imported;
+            try (OfflineCacheTransfer.Import target = transfer.prepare(snapshot.manifest)) {
+                assertNotNull(target);
+                imported = target.receive(new java.io.ByteArrayInputStream(content), () -> false, bytes -> {});
+            }
+            assertArrayEquals(xml, java.nio.file.Files.readAllBytes(saved.toPath()));
+            server.blocked = true;
+            Player player = launchSharedPlayer(imported);
+            main(() -> {
+                player.pause();
+                assertEquals(android.net.Uri.fromFile(saved), com.fongmi.android.tv.server.Server.get().getService().player().getSelectedDanmakuUri());
+            });
+        } finally { original.delete(); saved.delete(); }
+    }
+
+    @Test public void syncIncludesLatestMoviePlaybackSettings() throws Exception {
+        OfflineVideo video = transferable("a/sample.mp4");
+        add(video);
+        waitState(video.id, Download.STATE_COMPLETED);
+        com.fongmi.android.tv.bean.History latest = OfflineHistory.original(video);
+        latest.setPosition(1200); latest.setDuration(3000); latest.setOpening(300); latest.setEnding(400);
+        latest.setSpeed(1.25f); latest.setScale(2); latest.setCreateTime(System.currentTimeMillis()); latest.save();
+        new com.fongmi.android.tv.bean.Track(C.TRACK_TYPE_AUDIO, "English", "saved-audio-format").key(latest.getKey()).toggle().save();
+        main(() -> com.fongmi.android.tv.player.danmaku.CustomConfigManager.get().addOrUpdateHistory(latest.getKey(), 5));
+        OfflineCacheTransfer transfer = new OfflineCacheTransfer(context, cache);
+        OfflineCacheTransfer.Snapshot snapshot = transfer.export(video.id, () -> false);
+        com.fongmi.android.tv.bean.History exported = com.fongmi.android.tv.bean.History.objectFrom(snapshot.manifest.getJSONObject("video").getString("history"));
+        assertEquals(1200, exported.getPosition()); assertEquals(300, exported.getOpening()); assertEquals(400, exported.getEnding());
+        assertEquals(1.25f, exported.getSpeed(), 0.001f); assertEquals(2, exported.getScale());
+        byte[] content = payload(snapshot);
+        removeAndWait(video.id);
+        com.fongmi.android.tv.db.AppDatabase.get().getHistoryDao().delete(latest.getCid(), latest.getKey());
+        com.fongmi.android.tv.bean.Track.delete(latest.getKey());
+        main(() -> com.fongmi.android.tv.player.danmaku.CustomConfigManager.get().deleteHistory(latest.getKey()));
+        try (OfflineCacheTransfer.Import target = transfer.prepare(snapshot.manifest)) {
+            assertNotNull(target);
+            target.receive(new java.io.ByteArrayInputStream(content), () -> false, bytes -> {});
+        }
+        com.fongmi.android.tv.bean.History restored = OfflineHistory.restore(video);
+        assertEquals(1200, restored.getPosition()); assertEquals(300, restored.getOpening()); assertEquals(400, restored.getEnding());
+        assertEquals(1.25f, restored.getSpeed(), 0.001f); assertEquals(2, restored.getScale());
+        assertEquals("saved-audio-format", com.fongmi.android.tv.bean.Track.find(latest.getKey()).get(0).getFormat());
+        main(() -> assertEquals(5, com.fongmi.android.tv.player.danmaku.CustomConfigManager.get().getHistoryOffset(latest.getKey())));
+    }
+
+    private void removeAndWait(String id) throws Exception {
+        main(() -> cache.remove(id));
+        long end = System.currentTimeMillis() + 10000;
+        while (cache.find(id) != null && System.currentTimeMillis() < end) Thread.sleep(100);
+        assertNull(cache.find(id));
+    }
+
+    private byte[] payload(OfflineCacheTransfer.Snapshot snapshot) throws Exception {
+        try (InputStream input = snapshot.open(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            for (int count; (count = input.read(buffer)) != -1;) output.write(buffer, 0, count);
+            return output.toByteArray();
+        }
+    }
+
+    private void syncRoundTrip(String path) throws Exception {
+        OfflineVideo original = transferable(path);
+        add(original);
+        Download source = waitState(original.id, Download.STATE_COMPLETED);
+        OfflineCacheTransfer transfer = new OfflineCacheTransfer(context, cache);
+        OfflineCacheTransfer.Snapshot snapshot = transfer.export(original.id, () -> false);
+        byte[] content = payload(snapshot);
+        assertNull("Existing completed task must not be imported twice", transfer.prepare(snapshot.manifest));
+        removeAndWait(original.id);
+        // Simulate another device's configuration database ID; URLs, site, program, line and episode stay exact.
+        com.fongmi.android.tv.bean.History foreign = OfflineHistory.original(original).copy().cid(987654);
+        snapshot.manifest.getJSONObject("video").put("history", foreign.toString());
+        int requests = server.requests.get();
+        server.blocked = true;
+        Download imported;
+        try (OfflineCacheTransfer.Import target = transfer.prepare(snapshot.manifest)) {
+            assertNotNull(target);
+            assertEquals(original.id, target.video.id);
+            assertNull("Simultaneous import must share normal admission", transfer.prepare(snapshot.manifest));
+            AtomicInteger message = new AtomicInteger();
+            AtomicInteger resolutions = new AtomicInteger();
+            main(() -> cache.requestEpisode(OfflineHistory.original(original), callback -> resolutions.incrementAndGet(), message::set));
+            assertEquals(R.string.offline_preparing, message.get());
+            assertEquals("Source resolution must be blocked during import", 0, resolutions.get());
+            main(() -> cache.add(original, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, message::set));
+            assertEquals(R.string.offline_exists, message.get());
+            imported = target.receive(new java.io.ByteArrayInputStream(content), () -> false, bytes -> {});
+        }
+        assertEquals(source.request.uri, imported.request.uri);
+        assertEquals(source.request.mimeType, imported.request.mimeType);
+        assertEquals(source.request.streamKeys, imported.request.streamKeys);
+        assertEquals(source.request.customCacheKey, imported.request.customCacheKey);
+        assertEquals(source.getBytesDownloaded(), imported.getBytesDownloaded());
+        OfflineVideo restored = OfflineVideo.decode(imported.request.data);
+        assertEquals(original.headers, restored.headers);
+        assertEquals(original.source, restored.source);
+        assertEquals(original.danmaku, restored.danmaku);
+        assertEquals(OfflineHistory.original(original).getKey(), OfflineHistory.original(restored).getKey());
+        assertEquals(OfflineHistory.original(original).getEpisodeUrl(), OfflineHistory.original(restored).getEpisodeUrl());
+        assertEquals(original.id, cache.completedFor(OfflineHistory.original(original)).request.id);
+        assertNull(transfer.prepare(snapshot.manifest));
+        assertEquals("Import must not request the original source", requests, server.requests.get());
+        playOffline(imported, true);
+    }
+
+    @Test public void syncedMp4UsesNormalCacheAndSourceIdentity() throws Exception { syncRoundTrip("a/sample.mp4"); }
+    @Test public void syncedHlsKeepsTrackSelectionAndAllSegments() throws Exception { syncRoundTrip("a/hls/master.m3u8"); }
+    @Test public void syncedDashKeepsTrackSelectionAndAllSegments() throws Exception { syncRoundTrip("a/dash/manifest.mpd"); }
+
+    @Test public void brokenSyncRollsBackAndAllowsRetry() throws Exception {
+        OfflineVideo video = transferable("a/hls/master.m3u8");
+        add(video);
+        waitState(video.id, Download.STATE_COMPLETED);
+        OfflineCacheTransfer transfer = new OfflineCacheTransfer(context, cache);
+        OfflineCacheTransfer.Snapshot snapshot = transfer.export(video.id, () -> false);
+        byte[] content = payload(snapshot);
+        removeAndWait(video.id);
+        for (int failure = 0; failure < 3; failure++) {
+            OfflineCacheTransfer.Import target = transfer.prepare(snapshot.manifest);
+            assertNotNull(target);
+            byte[] broken = content.clone();
+            if (failure == 0) broken[0] ^= 1;
+            if (failure == 1) broken = java.util.Arrays.copyOf(content, content.length - 1);
+            boolean cancelled = failure == 2;
+            try {
+                target.receive(new java.io.ByteArrayInputStream(broken), () -> cancelled, bytes -> {});
+                fail("Broken or cancelled import must not become completed");
+            } catch (java.io.IOException expected) {}
+            assertNull(cache.find(video.id));
+            for (String key : cache.storage().getKeys()) assertFalse("No orphan spans after failure", key.startsWith(video.id + ":"));
+        }
+        try (OfflineCacheTransfer.Import retry = transfer.prepare(snapshot.manifest)) {
+            assertNotNull(retry);
+            retry.receive(new java.io.ByteArrayInputStream(content), () -> false, bytes -> {});
+        }
+        assertNotNull(cache.completedFor(OfflineHistory.original(video)));
+    }
+
+    @Test public void syncRejectsIncompleteDownloadsAndUnsafeManifests() throws Exception {
+        OfflineVideo video = transferable("a/slow.mp4");
+        add(video);
+        waitState(video.id, Download.STATE_DOWNLOADING);
+        OfflineCacheTransfer transfer = new OfflineCacheTransfer(context, cache);
+        try { transfer.export(video.id, () -> false); fail("Incomplete task cannot be synced"); }
+        catch (java.io.IOException expected) {}
+        main(() -> cache.pause(video.id));
+        waitState(video.id, Download.STATE_STOPPED);
+        OfflineVideo complete = transferable("a/sample.mp4");
+        add(complete);
+        waitState(complete.id, Download.STATE_COMPLETED);
+        OfflineCacheTransfer.Snapshot snapshot = transfer.export(complete.id, () -> false);
+        for (int kind = 0; kind < 3; kind++) {
+            org.json.JSONObject invalid = new org.json.JSONObject(snapshot.manifest.toString());
+            if (kind == 0) invalid.put("version", 999);
+            if (kind == 1) invalid.getJSONArray("spans").getJSONObject(0).put("position", -1);
+            if (kind == 2) invalid.getJSONArray("spans").getJSONObject(0).put("comment", "../../outside.xml");
+            try { transfer.prepare(invalid); fail("Malformed manifest must be rejected"); }
+            catch (java.io.IOException expected) {}
+        }
+        assertEquals(Download.STATE_COMPLETED, cache.find(complete.id).state);
+        for (String external : List.of("http://8.8.8.8:9978", "http://example.com:9978", "https://127.0.0.1:9978", "http://127.0.0.1:9978/path")) {
+            try { OfflineLan.endpoint(external); fail("Non-LAN endpoint accepted: " + external); }
+            catch (IllegalArgumentException expected) {}
+        }
+    }
+
+    @Test public void mobileLanProtocolImportsAndSkipsDuplicateWithoutFetchingAgain() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/hls/master.m3u8");
+        add(video);
+        waitState(video.id, Download.STATE_COMPLETED);
+        OfflineCacheTransfer transfer = new OfflineCacheTransfer(context, cache);
+        OfflineCacheTransfer.Snapshot snapshot = transfer.export(video.id, () -> false);
+        byte[] content = payload(snapshot);
+        removeAndWait(video.id);
+        AtomicInteger pulls = new AtomicInteger();
+        fi.iki.elonen.NanoHTTPD sender = new fi.iki.elonen.NanoHTTPD(0) {
+            @Override public Response serve(IHTTPSession session) {
+                pulls.incrementAndGet();
+                return newFixedLengthResponse(Response.Status.OK, "application/octet-stream", new java.io.ByteArrayInputStream(content), content.length);
+            }
+        };
+        com.fongmi.android.tv.server.Nano receiver = new com.fongmi.android.tv.server.Nano(0);
+        sender.start(); receiver.start();
+        try {
+            String endpoint = "http://127.0.0.1:" + receiver.getListeningPort() + "/offline-sync/";
+            org.json.JSONObject invitation = new org.json.JSONObject().put("port", sender.getListeningPort())
+                    .put("token", UUID.randomUUID()).put("manifest", snapshot.manifest);
+            okhttp3.OkHttpClient client = com.github.catvod.net.OkHttp.client();
+            okhttp3.Request request = new okhttp3.Request.Builder().url(endpoint + "receive")
+                    .post(new okhttp3.FormBody.Builder().add("invitation", invitation.toString()).build()).build();
+            String job;
+            try (okhttp3.Response response = client.newCall(request).execute()) {
+                assertTrue(response.isSuccessful());
+                job = new org.json.JSONObject(response.body().string()).getString("job");
+            }
+            long end = System.currentTimeMillis() + 10000;
+            String state = "";
+            do {
+                try (okhttp3.Response response = client.newCall(new okhttp3.Request.Builder().url(endpoint + "status?job=" + job).build()).execute()) {
+                    state = new org.json.JSONObject(response.body().string()).getString("state");
+                }
+                if (!state.equals("receiving")) break;
+                Thread.sleep(100);
+            } while (System.currentTimeMillis() < end);
+            assertEquals("completed", state);
+            assertEquals(1, pulls.get());
+            try (okhttp3.Response response = client.newCall(request).execute()) {
+                assertEquals("exists", new org.json.JSONObject(response.body().string()).getString("state"));
+            }
+            assertEquals("Duplicate invitation must not fetch any video", 1, pulls.get());
+            assertNotNull(cache.completedFor(OfflineHistory.original(video)));
+            server.blocked = true;
+            playOffline(cache.find(video.id), true);
+        } finally { sender.stop(); receiver.stop(); }
+    }
+
+    @Test public void syncedSavedDanmakuUsesItsNormalFileAndUrl() throws Exception {
+        OfflineVideo base = transferable("a/sample.mp4");
+        String url = "https://comments.test/" + UUID.randomUUID() + ".xml";
+        String comments = "[{\"name\":\"测试弹幕\",\"url\":\"" + url + "\"}]";
+        OfflineVideo video = new OfflineVideo(OfflineVideo.identity(OfflineHistory.original(base)), base.title, base.episode, base.line,
+                base.url, base.mimeType, base.headers, base.history, comments, base.source);
+        java.io.File directory = new java.io.File(context.getFilesDir(), "danmaku_saved");
+        directory.mkdirs();
+        java.io.File file = new java.io.File(directory, UUID.nameUUIDFromBytes(url.getBytes(StandardCharsets.UTF_8)) + ".xml");
+        byte[] xml = "<i><d p=\"1,1,25,16777215,0,0,0,0\">同步弹幕</d></i>".getBytes(StandardCharsets.UTF_8);
+        try {
+            try (java.io.FileOutputStream output = new java.io.FileOutputStream(file)) { output.write(xml); }
+            add(video);
+            waitState(video.id, Download.STATE_COMPLETED);
+            OfflineCacheTransfer transfer = new OfflineCacheTransfer(context, cache);
+            OfflineCacheTransfer.Snapshot snapshot = transfer.export(video.id, () -> false);
+            byte[] content = payload(snapshot);
+            removeAndWait(video.id);
+            assertTrue(file.delete());
+            try (OfflineCacheTransfer.Import target = transfer.prepare(snapshot.manifest)) {
+                target.receive(new java.io.ByteArrayInputStream(content), () -> false, bytes -> {});
+            }
+            assertArrayEquals(xml, java.nio.file.Files.readAllBytes(file.toPath()));
+            assertEquals(comments, OfflineVideo.decode(cache.find(video.id).request.data).danmaku);
+        } finally { file.delete(); }
+    }
+
+    @Test public void mobileSenderNegotiatesAndSkipsExistingTask() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4");
+        add(video);
+        Download download = waitState(video.id, Download.STATE_COMPLETED);
+        com.fongmi.android.tv.server.Nano receiver = new com.fongmi.android.tv.server.Nano(0);
+        receiver.start();
+        try {
+            com.fongmi.android.tv.bean.Device phone = com.fongmi.android.tv.bean.Device.get();
+            phone.setIp("http://127.0.0.1:" + receiver.getListeningPort());
+            CountDownLatch finished = new CountDownLatch(1);
+            AtomicInteger sent = new AtomicInteger(-1), skipped = new AtomicInteger(-1);
+            java.util.concurrent.atomic.AtomicReference<String> failure = new java.util.concurrent.atomic.AtomicReference<>();
+            main(() -> OfflineCacheSync.get(context).send(phone, List.of(download), new OfflineCacheSync.Listener() {
+                @Override public void progress(String title, int index, int count, long received, long total) {}
+                @Override public void complete(int completed, int existing, String error) {
+                    sent.set(completed); skipped.set(existing); failure.set(error); finished.countDown();
+                }
+            }));
+            assertTrue(finished.await(10, TimeUnit.SECONDS));
+            assertNull(failure.get());
+            assertEquals(0, sent.get());
+            assertEquals(1, skipped.get());
+            assertEquals(Download.STATE_COMPLETED, cache.find(video.id).state);
+        } finally { receiver.stop(); }
+    }
+
+    @Test public void tvDoesNotRegisterCacheSyncEndpointOrButton() {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("leanback"));
+        assertNull(OfflineSyncEntry.process());
+        main(() -> {
+            int id = context.getResources().getIdentifier("offline_sync", "id", context.getPackageName());
+            assertNull(screen.findViewById(id));
+        });
+    }
+
+    @Test public void manualSyncSelectionListsOnlyCompletedAndRequiresASelection() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo ready = transferable("a/sample.mp4");
+        add(ready);
+        waitState(ready.id, Download.STATE_COMPLETED);
+        OfflineVideo paused = transferable("a/slow.mp4");
+        add(paused);
+        waitState(paused.id, Download.STATE_DOWNLOADING);
+        main(() -> cache.pause(paused.id));
+        waitState(paused.id, Download.STATE_STOPPED);
+        java.lang.reflect.Field ownerField = OfflineCacheActivity.class.getDeclaredField("sync");
+        ownerField.setAccessible(true);
+        Object owner = ownerField.get(screen);
+        java.lang.reflect.Field dialogField = owner.getClass().getDeclaredField("dialog");
+        dialogField.setAccessible(true);
+        main(() -> screen.findViewById(R.id.offline_sync).performClick());
+        androidx.appcompat.app.AlertDialog[] choice = new androidx.appcompat.app.AlertDialog[1];
+        long end = System.currentTimeMillis() + 5000;
+        do {
+            main(() -> { try { choice[0] = (androidx.appcompat.app.AlertDialog) dialogField.get(owner); } catch (Exception error) { throw new AssertionError(error); } });
+            if (choice[0] != null) break;
+            Thread.sleep(100);
+        } while (System.currentTimeMillis() < end);
+        assertNotNull(choice[0]);
+        main(() -> {
+            assertEquals(1, choice[0].getListView().getAdapter().getCount());
+            assertFalse(choice[0].getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled());
+            choice[0].getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL).performClick();
+            assertTrue(choice[0].getListView().isItemChecked(0));
+            assertTrue(choice[0].getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled());
+            choice[0].getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+        });
+    }
+
     @Before
     public void setup() throws Exception {
         context = InstrumentationRegistry.getInstrumentation().getTargetContext();
@@ -89,8 +565,11 @@ public class OfflineCacheTest {
         CountDownLatch saved = new CountDownLatch(1);
         com.fongmi.android.tv.utils.Task.executeSerial(saved::countDown);
         assertTrue(saved.await(5, TimeUnit.SECONDS));
-        for (com.fongmi.android.tv.bean.History history : histories)
+        for (com.fongmi.android.tv.bean.History history : histories) {
             com.fongmi.android.tv.db.AppDatabase.get().getHistoryDao().delete(history.getCid(), history.getKey());
+            com.fongmi.android.tv.bean.Track.delete(history.getKey());
+            main(() -> com.fongmi.android.tv.player.danmaku.CustomConfigManager.get().deleteHistory(history.getKey()));
+        }
         if (server != null) server.close();
     }
 

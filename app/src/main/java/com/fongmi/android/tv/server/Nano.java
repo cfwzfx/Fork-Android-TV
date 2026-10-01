@@ -33,6 +33,8 @@ public class Nano extends NanoHTTPD {
 
     private void addProcess() {
         process = new ArrayList<>();
+        Process cacheSync = com.fongmi.android.tv.offline.OfflineSyncEntry.process();
+        if (cacheSync != null) process.add(cacheSync);
         process.add(new Action());
         process.add(new Cache());
         process.add(new Image());

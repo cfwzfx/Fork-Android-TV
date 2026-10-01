@@ -19,6 +19,39 @@ import okhttp3.ResponseBody;
 public final class OfflineDanmakuCache {
     private OfflineDanmakuCache() {}
 
+    public static File saved(String url) {
+        return new File(App.get().getFilesDir(), "danmaku_saved/" + UUID.nameUUIDFromBytes(url.getBytes(StandardCharsets.UTF_8)) + ".xml");
+    }
+
+    public static boolean isLocal(String url) {
+        String scheme = com.fongmi.android.tv.utils.UrlUtil.uri(url).getScheme();
+        return "file".equals(scheme) || "content".equals(scheme) || scheme == null;
+    }
+
+    public static android.net.Uri playbackUri(String url) {
+        File file = saved(url);
+        return isLocal(url) && file.isFile() ? android.net.Uri.fromFile(file) : com.fongmi.android.tv.utils.UrlUtil.uri(url);
+    }
+
+    public static synchronized File saveLocal(String url) throws IOException {
+        File file = saved(url);
+        if (file.isFile() && file.length() > 0) return file;
+        if (!isLocal(url)) return file;
+        File directory = file.getParentFile();
+        if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("Cannot save local comments");
+        File temporary = File.createTempFile("comments-", ".tmp", directory);
+        try {
+            try (java.io.InputStream input = App.get().getContentResolver().openInputStream(com.fongmi.android.tv.utils.UrlUtil.uri(url));
+                 FileOutputStream output = new FileOutputStream(temporary)) {
+                if (input == null) throw new IOException("Local comments unavailable");
+                byte[] buffer = new byte[8192];
+                for (int count; (count = input.read(buffer)) != -1;) output.write(buffer, 0, count);
+            }
+            if (temporary.length() == 0 || !temporary.renameTo(file)) throw new IOException("Cannot save local comments");
+            return file;
+        } finally { temporary.delete(); }
+    }
+
     public static OkHttpClient client(OkHttpClient base) {
         return (base == null ? OkHttp.client() : base).newBuilder().addInterceptor(chain -> {
             File directory = new File(App.get().getFilesDir(), "danmaku_saved");

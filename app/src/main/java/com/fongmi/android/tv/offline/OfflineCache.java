@@ -60,6 +60,7 @@ public final class OfflineCache {
     private final Set<String> probing = new HashSet<>();
     private final Map<String, String> inFlightEpisodes = new HashMap<>();
     private final Map<String, Object> admission = new HashMap<>();
+    private final Set<String> importing = new HashSet<>();
     private final Map<String, Object> flightTokens = new HashMap<>();
     private final Set<String> submitting = new HashSet<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -68,6 +69,9 @@ public final class OfflineCache {
         if (instance == null) instance = new OfflineCache(context.getApplicationContext(), network);
         return instance;
     }
+
+    static synchronized OfflineCache peek() { return instance; }
+    androidx.media3.datasource.DataSource.Factory subtitleNetwork(OfflineVideo video) { return network.create(video.headers); }
 
     private OfflineCache(Context context, NetworkFactory network) {
         this.context = context;
@@ -97,13 +101,52 @@ public final class OfflineCache {
             @Override
             public void onDownloadRemoved(DownloadManager manager, Download download) {
                 releaseFlight(download.request.id);
+                try {
+                    if (importing.contains(OfflineVideo.decode(download.request.data).episodeKey())) return;
+                    for (String key : cache.getKeys()) {
+                        if (key.startsWith(download.request.id + ":http://offline.subtitle/")) cache.removeResource(key);
+                    }
+                } catch (RuntimeException ignored) {}
                 errors.edit().remove(download.request.id).apply();
+                context.getSharedPreferences("offline_playback", 0).edit().remove("subtitles:" + download.request.id)
+                        .remove("danmaku:" + download.request.id).remove("danmakuSelected:" + download.request.id).apply();
             }
         });
     }
 
     DownloadManager manager() {
         return manager;
+    }
+
+    androidx.media3.datasource.cache.SimpleCache storage() { return cache; }
+
+    /** Called by the transfer worker; reservation shares the normal download admission gate. */
+    boolean reserveImport(OfflineVideo video) throws IOException {
+        return onMain(() -> {
+            if (admission.containsKey(video.episodeKey()) || inFlightEpisodes.containsKey(video.episodeKey())
+                    || existingEpisode(video.episodeKey(), video.id) != null) return false;
+            importing.add(video.episodeKey());
+            admission.put(video.episodeKey(), video.id);
+            inFlightEpisodes.put(video.episodeKey(), video.id);
+            return true;
+        });
+    }
+
+    void releaseImport(OfflineVideo video) throws IOException {
+        onMain(() -> {
+            if (importing.remove(video.episodeKey())) admission.remove(video.episodeKey(), video.id);
+            releaseFlight(video.id);
+            return null;
+        });
+    }
+
+    private <T> T onMain(java.util.concurrent.Callable<T> work) throws IOException {
+        java.util.concurrent.FutureTask<T> task = new java.util.concurrent.FutureTask<>(work);
+        if (Looper.myLooper() == Looper.getMainLooper()) task.run();
+        else handler.post(task);
+        try { return task.get(); }
+        catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IOException("Transfer interrupted", error); }
+        catch (java.util.concurrent.ExecutionException error) { throw new IOException("Cache unavailable", error.getCause()); }
     }
 
     public void resumeService() {
@@ -229,7 +272,7 @@ public final class OfflineCache {
     }
 
     public void add(OfflineVideo video, TrackSelectionParameters parameters, Callback callback) {
-        if (inFlightEpisodes.containsKey(video.episodeKey()) || submitting.contains(video.id)) {
+        if (importing.contains(video.episodeKey()) || inFlightEpisodes.containsKey(video.episodeKey()) || submitting.contains(video.id)) {
             callback.complete(com.fongmi.android.tv.R.string.offline_exists);
             return;
         }
@@ -254,6 +297,7 @@ public final class OfflineCache {
         com.fongmi.android.tv.utils.Task.execute(() -> {
             try {
                 OfflineVideo inspected = OfflineProbe.inspect(video, network);
+                OfflineSubtitles.capture(context, this, inspected);
                 handler.post(() -> {
                     probing.remove(video.id);
                     try { prepare(inspected, parameters, callback); }
@@ -290,6 +334,7 @@ public final class OfflineCache {
                 handler.removeCallbacks(timeout);
                 try {
                     // Reject protected tracks discovered in the manifest, too.
+                    if (tracksInfoAvailable) selectAllSubtitles(prepared);
                     for (int period = 0; tracksInfoAvailable && period < prepared.getPeriodCount(); period++) {
                         boolean hasVideo = false, hasAudio = false, selectedVideo = false, selectedAudio = false;
                         for (androidx.media3.common.Tracks.Group group : prepared.getTracks(period).getGroups()) {
@@ -334,6 +379,28 @@ public final class OfflineCache {
         helper.release();
         if (message != com.fongmi.android.tv.R.string.offline_added) releaseFlight(id);
         callback.complete(message);
+    }
+
+    private void selectAllSubtitles(DownloadHelper helper) {
+        for (int period = 0; period < helper.getPeriodCount(); period++) {
+            var mapping = helper.getMappedTrackInfo(period);
+            for (int renderer = 0; renderer < mapping.getRendererCount(); renderer++) {
+                if (mapping.getRendererType(renderer) != androidx.media3.common.C.TRACK_TYPE_TEXT) continue;
+                var groups = mapping.getTrackGroups(renderer);
+                List<androidx.media3.exoplayer.trackselection.DefaultTrackSelector.SelectionOverride> overrides = new ArrayList<>();
+                for (int group = 0; group < groups.length; group++) {
+                    List<Integer> indices = new ArrayList<>();
+                    for (int track = 0; track < groups.get(group).length; track++) {
+                        if (mapping.getTrackSupport(renderer, group, track) >= androidx.media3.common.C.FORMAT_EXCEEDS_CAPABILITIES
+                                && groups.get(group).getFormat(track).drmInitData == null) indices.add(track);
+                    }
+                    if (!indices.isEmpty()) overrides.add(new androidx.media3.exoplayer.trackselection.DefaultTrackSelector.SelectionOverride(group,
+                            indices.stream().mapToInt(Integer::intValue).toArray()));
+                }
+                if (!overrides.isEmpty()) helper.addTrackSelectionForSingleRenderer(period, renderer,
+                        DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS.buildUpon().setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, false).build(), overrides);
+            }
+        }
     }
 
     public void pause(String id) {

@@ -44,4 +44,5 @@
     <string name="offline_invalid_content">The source returned no valid video. Its URL may have expired; resolve the episode again and retry.</string>
     <string name="offline_resolve_error">Could not resolve the episode for caching. Check the source and retry.</string>
     <string name="offline_already_cached">This episode is already cached</string>
+    <string name="offline_subtitle_error">Some external subtitles could not be saved; video caching continues. Check the subtitle source or re-import it.</string>
 </resources>

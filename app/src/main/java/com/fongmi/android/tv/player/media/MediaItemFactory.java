@@ -75,7 +75,7 @@ public final class MediaItemFactory {
         return bundle;
     }
 
-    private static List<MediaItem.SubtitleConfiguration> buildSubtitleConfigs(List<Sub> subs) {
+    public static List<MediaItem.SubtitleConfiguration> buildSubtitleConfigs(List<Sub> subs) {
         if (subs == null) return List.of();
         List<Sub> valid = subs.stream().filter(sub -> sub != null && !sub.isEmpty()).toList();
         if (valid.isEmpty()) return List.of();
@@ -89,7 +89,7 @@ public final class MediaItemFactory {
 
     private static MediaItem.SubtitleConfiguration buildSubConfig(Sub sub, int flag) {
         String mimeType = sub.getFormat();
-        String id = "external:" + UUID.nameUUIDFromBytes(sub.getUrl().getBytes(StandardCharsets.UTF_8));
+        String id = "external:" + UUID.nameUUIDFromBytes(sub.getOrigin().getBytes(StandardCharsets.UTF_8));
         if (TextUtils.isEmpty(mimeType)) mimeType = TrackUtil.getSubtitleMimeType(sub.getUri().getPath());
         return new MediaItem.SubtitleConfiguration.Builder(sub.getUri()).setId(id).setLabel(sub.getName()).setMimeType(mimeType).setSelectionFlags(flag).setLanguage(sub.getLang()).build();
     }

@@ -118,6 +118,11 @@ public final class OfflinePlayback {
         return site;
     }
 
+    public String originalKey() {
+        History original = selected == null ? null : OfflineHistory.original(selected);
+        return original == null ? null : original.getKey();
+    }
+
     public History history() {
         History history = OfflineHistory.restore(selected);
         history.setKey("offline:" + group);
@@ -142,18 +147,18 @@ public final class OfflinePlayback {
 
     public Result source() {
         if (selected == null) return null;
-        if (!selected.source.isEmpty()) return Result.objectFrom(selected.source);
-        Result result = new Result();
+        Result result = selected.source.isEmpty() ? new Result() : Result.objectFrom(selected.source);
+        if (result == null) result = new Result();
         String url = selected.url;
         try {
             History original = selected.history.isEmpty() ? null : History.objectFrom(selected.history);
             if (original != null) {
                 if (original.getEpisodeUrl() != null && !original.getEpisodeUrl().isEmpty()) url = original.getEpisodeUrl();
-                if (original.getKey() != null) result.setKey(original.getKey().split(java.util.regex.Pattern.quote(AppDatabase.SYMBOL))[0]);
-                result.setFlag(original.getVodFlag());
+                if (result.getKey().isEmpty() && original.getKey() != null) result.setKey(original.getKey().split(java.util.regex.Pattern.quote(AppDatabase.SYMBOL))[0]);
+                if (result.getFlag().isEmpty()) result.setFlag(original.getVodFlag());
             }
         } catch (RuntimeException ignored) {}
-        result.setUrl(url);
+        if (result.getUrl().isEmpty()) result.setUrl(url);
         return result;
     }
 
@@ -188,7 +193,7 @@ public final class OfflinePlayback {
                 activity.runOnUiThread(() -> {
                     if (closed || token != generation || activity.isDestroyed()) return;
                     selected = video;
-                    players.startOffline(download.request.toMediaItem().buildUpon().setMediaMetadata(metadata).setMediaId(key).build(),
+                    players.startOffline(OfflineSubtitles.attach(activity, id, download.request.toMediaItem()).buildUpon().setMediaMetadata(metadata).setMediaId(key).build(),
                             new DefaultMediaSourceFactory(new androidx.media3.datasource.DefaultDataSource.Factory(activity, cache.playback(download))), items,
                             value -> preferences.edit().putString("danmaku:" + id, App.gson().toJson(players.getDanmakus())).apply(), position);
                 });

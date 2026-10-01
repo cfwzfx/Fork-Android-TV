@@ -211,6 +211,7 @@ public class VideoActivity extends PlaybackActivity implements VodPlaybackHost, 
 
     @Override
     public String getHistoryKey() {
+        if (mOffline != null && mOffline.originalKey() != null) return mOffline.originalKey();
         return getKey().concat(AppDatabase.SYMBOL).concat(getId()).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
     }
 

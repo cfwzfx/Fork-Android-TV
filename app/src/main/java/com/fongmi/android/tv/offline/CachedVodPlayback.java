@@ -60,7 +60,7 @@ public final class CachedVodPlayback {
                     players.setSourceResult(source);
                     // Publish the canonical playing request before synchronous player callbacks.
                     ready.accept(true);
-                    players.startOffline(download.request.toMediaItem().buildUpon().setMediaMetadata(metadata).setMediaId(key).build(),
+                    players.startOffline(OfflineSubtitles.attach(activity, video.id, download.request.toMediaItem()).buildUpon().setMediaMetadata(metadata).setMediaId(key).build(),
                             new DefaultMediaSourceFactory(new androidx.media3.datasource.DefaultDataSource.Factory(activity, cache.playback(download))),
                             comments, item -> saved.edit().putString("danmaku:" + video.id, App.gson().toJson(players.getDanmakus())).apply(), position);
                 } catch (RuntimeException error) { ready.accept(false); }
