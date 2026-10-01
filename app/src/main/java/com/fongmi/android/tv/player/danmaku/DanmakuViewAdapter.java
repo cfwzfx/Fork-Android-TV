@@ -24,8 +24,8 @@ public final class DanmakuViewAdapter implements AutoCloseable {
     }
 
     public void setOkHttpClient(OkHttpClient value) {
-        client = value;
-        if (view != null) view.setDanmakuOkHttpClient(value);
+        client = com.fongmi.android.tv.offline.OfflineDanmakuCache.client(value);
+        if (view != null) view.setDanmakuOkHttpClient(client);
     }
 
     public void setConfig(DanmakuConfig value) {

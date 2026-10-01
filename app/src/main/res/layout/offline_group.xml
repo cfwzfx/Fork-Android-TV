@@ -1,0 +1,11 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:layout_marginBottom="4dp" android:background="@drawable/offline_button_secondary"
+    android:clickable="true" android:focusable="true" android:gravity="center_vertical" android:padding="8dp">
+    <ImageView android:layout_width="28dp" android:layout_height="28dp" android:src="@drawable/ic_folder" android:tint="@color/offline_accent" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:orientation="vertical">
+        <TextView android:id="@+id/offline_group_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:maxLines="2" android:ellipsize="end" android:textColor="@color/offline_text" android:textSize="15sp" android:textStyle="bold" />
+        <TextView android:id="@+id/offline_group_detail" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/offline_secondary" android:textSize="11sp" />
+    </LinearLayout>
+    <ImageView android:id="@+id/offline_group_arrow" android:layout_width="20dp" android:layout_height="20dp" android:layout_marginStart="8dp" android:src="@drawable/offline_expand" android:tint="@color/offline_secondary" android:importantForAccessibility="no" />
+</LinearLayout>

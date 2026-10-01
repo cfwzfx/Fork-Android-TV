@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared dialog code can look up the optional mobile refresh button. -->
+    <item name="refresh" type="id" />
+</resources>

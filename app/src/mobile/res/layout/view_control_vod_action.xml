@@ -92,6 +92,11 @@
             tools:visibility="visible" />
 
         <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/offline_list"
+            style="@style/Control"
+            android:text="@string/offline_title" />
+
+        <com.google.android.material.textview.MaterialTextView
             android:id="@+id/edition"
             style="@style/Control"
             android:text="@string/play_edition"

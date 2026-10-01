@@ -15,7 +15,12 @@ import com.fongmi.android.tv.utils.Task;
 
 public class VodHistoryPolicy {
 
+    private com.fongmi.android.tv.offline.OfflinePlayback offline;
+
+    public void setOffline(com.fongmi.android.tv.offline.OfflinePlayback offline) { this.offline = offline; }
+
     public History findOrCreate(String key, String mark, Vod item) {
+        if (offline != null) return offline.history();
         History history = History.find(key);
         history = history == null ? create(key, item) : history;
         if (!TextUtils.isEmpty(mark)) history.setVodRemarks(mark);
@@ -38,6 +43,7 @@ public class VodHistoryPolicy {
     }
 
     public void save(History history, boolean exit) {
+        if (offline != null) { offline.save(history, exit); return; }
         if (history == null || !history.canSave() || Setting.isIncognito()) return;
         History copy = copyForSave(history);
         Task.executeSerial(() -> {
@@ -64,6 +70,7 @@ public class VodHistoryPolicy {
     }
 
     public void saveCurrent(History history) {
+        if (offline != null) { offline.save(history); return; }
         if (history == null || Setting.isIncognito()) return;
         History copy = copyForSave(history);
         Task.executeSerial(copy::save);
@@ -71,6 +78,13 @@ public class VodHistoryPolicy {
 
     public void updateEpisode(History history, Flag flag, Episode episode) {
         if (history == null || flag == null || episode == null) return;
+        if (offline != null) {
+            offline.selectEpisode(history, episode);
+            history.setVodFlag(flag.getFlag());
+            history.setVodRemarks(episode.getName());
+            history.setEpisodeUrl(episode.getUrl());
+            return;
+        }
         boolean match = episode.matchesName(history.getEpisode());
         if (!match) history.setPosition(C.TIME_UNSET);
         if (!match) history.setDuration(C.TIME_UNSET);

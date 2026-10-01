@@ -61,6 +61,12 @@ public class PlayerManager implements ParseCallback {
     private PlaySpec spec;
     private Player player;
 
+    private MediaItem offlineItem;
+    private androidx.media3.exoplayer.source.MediaSource.Factory offlineFactory;
+    private java.util.function.Consumer<Danmaku> offlineDanmakuChanged;
+    private String sourceResult = "";
+    private ParseJob danmakuJob;
+
     private long pendingStartPositionMs;
     private boolean danmakuEnabled;
     private boolean initTrack;
@@ -79,11 +85,62 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void release() {
+        stopParse();
+        stopDanmakuSearch();
         App.removeCallbacks(runnable);
         if (player != null) player.removeListener(listener);
         if (engine != null) engine.release();
         engine = null;
         player = null;
+    }
+
+    public boolean isOffline() { return offlineItem != null; }
+
+    public String getSourceResult() { return sourceResult; }
+
+    public void setSourceResult(Result result) { sourceResult = App.gson().toJson(result); }
+
+    public void startOffline(MediaItem item, androidx.media3.exoplayer.source.MediaSource.Factory factory,
+                             List<Danmaku> comments, java.util.function.Consumer<Danmaku> changed) {
+        startOffline(item, factory, comments, changed, C.TIME_UNSET);
+    }
+
+    public void startOffline(MediaItem item, androidx.media3.exoplayer.source.MediaSource.Factory factory,
+                             List<Danmaku> comments, java.util.function.Consumer<Danmaku> changed, long position) {
+        reset();
+        stopParse();
+        stopDanmakuSearch();
+        offlineItem = item;
+        offlineFactory = factory;
+        offlineDanmakuChanged = changed;
+        spec = PlaySpec.offline(item.mediaId, item, comments);
+        setMediaItem(Constant.TIMEOUT_PLAY, position);
+    }
+
+    private void clearOffline() {
+        stopDanmakuSearch();
+        offlineItem = null;
+        offlineFactory = null;
+        offlineDanmakuChanged = null;
+    }
+
+    private void stopDanmakuSearch() {
+        if (danmakuJob != null) danmakuJob.stop();
+        danmakuJob = null;
+    }
+
+    public void searchDanmaku(Result result, com.fongmi.android.tv.bean.Parse item) {
+        if (result == null || spec == null) return;
+        stopDanmakuSearch();
+        danmakuJob = ParseJob.create(new ParseCallback() {
+            @Override public void onParseSuccess(Map<String, String> headers, String url, String from) {}
+            @Override public void onParseError() { Notify.show(R.string.offline_danmaku_error); }
+            @Override public void onParseDanmaku(List<Danmaku> items) {
+                if (spec == null) return;
+                for (Danmaku comment : items) spec.addDanmaku(comment);
+                setDanmaku(items.get(0));
+            }
+        }).startDanmaku(result, item);
     }
 
     public Player getPlayer() {
@@ -140,6 +197,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     private void notifyDanmakuSourceChanged() {
+        if (offlineDanmakuChanged != null) offlineDanmakuChanged.accept(spec == null ? null : spec.getSelectedDanmaku());
         callback.onDanmakuSourceChanged(getSelectedDanmakuUri());
     }
 
@@ -180,6 +238,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public boolean canPreloadNext() {
+        if (isOffline()) return false;
         return PreloadSetting.isEnabled() && PreloadSetting.isNextEpisodeEnabled() && engine != null && engine.getType() == PlayerEngine.Type.EXO;
     }
 
@@ -443,6 +502,8 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void clear() {
+        clearOffline();
+        sourceResult = "";
         spec = null;
     }
 
@@ -498,10 +559,11 @@ public class PlayerManager implements ParseCallback {
     }
 
     private void ensureEngine(PlaySpec spec) {
-        if (PlayerEngineFactory.matches(engine, spec)) return;
+        if (isOffline() ? engine != null && engine.getType() == PlayerEngine.Type.EXO && !engine.needsRebuild()
+                : PlayerEngineFactory.matches(engine, spec)) return;
         PlayerEngine old = engine;
         player.removeListener(listener);
-        engine = PlayerEngineFactory.create(decode, spec, listener);
+        engine = isOffline() ? PlayerEngineFactory.create(decode, PlayerEngine.Type.EXO, listener) : PlayerEngineFactory.create(decode, spec, listener);
         setPlayer(engine.getPlayer());
         old.release();
     }
@@ -518,6 +580,7 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void start(PlaySpec spec, long timeout, long startPositionMs) {
+        clearOffline();
         this.spec = spec;
         setMediaItem(timeout, startPositionMs);
     }
@@ -527,6 +590,8 @@ public class PlayerManager implements ParseCallback {
     }
 
     public void parse(String key, Result result, boolean useParse, MediaMetadata metadata, long startPositionMs) {
+        clearOffline();
+        setSourceResult(result);
         stopParse();
         pendingStartPositionMs = startPositionMs;
         spec = PlaySpec.fromParse(result, key, metadata);
@@ -544,7 +609,8 @@ public class PlayerManager implements ParseCallback {
         ensureEngine(spec.checkUa());
         pendingPreload = null;
         initTrack = false;
-        engine.start(spec, startPositionMs);
+        if (isOffline()) ((com.fongmi.android.tv.player.exo.ExoPlayerEngine) engine).startOffline(offlineItem, offlineFactory, startPositionMs);
+        else engine.start(spec, startPositionMs);
         notifyDanmakuSourceChanged();
         App.post(runnable, timeout);
         callback.onPrepare();

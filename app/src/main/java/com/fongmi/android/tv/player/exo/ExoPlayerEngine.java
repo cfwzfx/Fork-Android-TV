@@ -97,8 +97,20 @@ public class ExoPlayerEngine implements PlayerEngine, AnalyticsListener {
 
     @Override
     public void start(PlaySpec spec, long startPositionMs) {
+        offline = false;
         this.spec = spec;
         startInternal(startPositionMs);
+    }
+
+    private boolean offline;
+
+    public void startOffline(MediaItem item, androidx.media3.exoplayer.source.MediaSource.Factory factory, long position) {
+        offline = true;
+        clearPreload();
+        preload.stop();
+        effect.clearAudioEffect();
+        player.setMediaSource(factory.createMediaSource(item), position);
+        prepareAndPlay();
     }
 
     @Override
@@ -174,6 +186,7 @@ public class ExoPlayerEngine implements PlayerEngine, AnalyticsListener {
     }
 
     private ErrorAction retryFormat(int errorCode) {
+        if (offline) return ErrorAction.FATAL;
         spec.setFormat(ExoUtil.getMimeType(errorCode));
         startInternal(player.getCurrentPosition());
         return ErrorAction.RECOVERED;

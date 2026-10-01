@@ -57,6 +57,11 @@ public class PlaySpec {
         return new PlaySpec(key, result.getRealUrl(), result.getHeader(), result.getFormat(), result.getDrm(), result.getSubs(), result.getDanmaku(), metadata);
     }
 
+    public static PlaySpec offline(String key, androidx.media3.common.MediaItem item, List<Danmaku> comments) {
+        return new PlaySpec(key, item.localConfiguration.uri.toString(), new HashMap<>(), item.localConfiguration.mimeType,
+                null, null, comments, item.mediaMetadata);
+    }
+
     public static PlaySpec fromParse(Result result, String key, MediaMetadata metadata) {
         return new PlaySpec(key, null, null, result.getFormat(), result.getDrm(), result.getSubs(), result.getDanmaku(), metadata);
     }

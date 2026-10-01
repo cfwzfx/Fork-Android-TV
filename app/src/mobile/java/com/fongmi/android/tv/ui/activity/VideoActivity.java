@@ -221,8 +221,33 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         return getKey().concat(AppDatabase.SYMBOL).concat(getId()).concat(AppDatabase.SYMBOL) + VodConfig.getCid();
     }
 
+    private com.fongmi.android.tv.offline.OfflinePlayback mOffline;
+
+    @Override
+    public com.fongmi.android.tv.offline.OfflinePlayback getOfflinePlayback() { return mOffline; }
+
+    @Override
+    public void dispatchOfflineDetail(Runnable ready) { runWhenServiceReady(ready); }
+
+    @Override
+    public void startOfflinePlayback(Episode episode, long position, MediaMetadata metadata) {
+        startOfflinePlayer(mOffline, episode, position, metadata);
+    }
+
+    @Override
+    public void searchDanmaku(Parse item) {
+        Result source = mOffline == null ? Result.objectFrom(player().getSourceResult()) : mOffline.source();
+        player().searchDanmaku(source, item);
+    }
+
+    private void updateOfflinePlayback() {
+        if (mOffline != null) mOffline.close();
+        mOffline = com.fongmi.android.tv.offline.OfflinePlayback.isOffline(getIntent())
+                ? new com.fongmi.android.tv.offline.OfflinePlayback(this) : null;
+    }
+
     private Site getSite() {
-        return VodConfig.get().getSite(getKey());
+        return mOffline == null ? VodConfig.get().getSite(getKey()) : mOffline.site();
     }
 
     private int getScale() {
@@ -286,6 +311,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         saveHistory(true);
         mVod.reset();
         setIntent(intent);
+        updateOfflinePlayback();
         updateNavigationKey();
         checkControl();
         setOrient();
@@ -318,6 +344,12 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     @SuppressLint("ClickableViewAccessibility")
     protected void initEvent() {
+        mBinding.control.offlineCache.setOnClickListener(v -> {
+            if (service() == null) { Notify.show(R.string.offline_not_ready); return; }
+            com.fongmi.android.tv.offline.OfflineIntegration.cacheCurrent(this, player(), mHistory);
+        });
+        mBinding.control.offlineCache.setOnLongClickListener(v -> { com.fongmi.android.tv.offline.OfflineIntegration.open(this); return true; });
+        mBinding.control.action.offlineList.setOnClickListener(v -> com.fongmi.android.tv.offline.OfflineIntegration.showPanel(this));
         mBinding.name.setOnClickListener(view -> onName());
         mBinding.more.setOnClickListener(view -> onMore());
         mBinding.actor.setOnClickListener(view -> onActor());
@@ -417,6 +449,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     private void setViewModel() {
         mViewModel = new ViewModelProvider(this).get(VideoViewModel.class);
+        updateOfflinePlayback();
         mVod = mViewModel.createPlaybackController(this);
         observeWhenServiceReady(mViewModel.getDetail(), this::onDetailObserved);
         observeWhenServiceReady(mViewModel.getSearch(), this::onSearchObserved);
@@ -533,6 +566,8 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     public void prepareSource(Vod item) {
+        if (mOffline != null) { mOffline.save(mHistory); mOffline.close(); mOffline = null; }
+        getIntent().removeExtra("offline_id");
         getIntent().putExtra("key", item.getSiteKey());
         getIntent().putExtra("id", item.getId());
         mBinding.swipeLayout.setRefreshing(true);
@@ -682,7 +717,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     public void renderUseParse(boolean useParse) {
         setUseParse(useParse);
-        mBinding.control.action.parse.setVisibility(isUseParse() ? View.VISIBLE : View.GONE);
+        mBinding.control.action.parse.setVisibility(isUseParse() || !VodConfig.get().getParses().isEmpty() ? View.VISIBLE : View.GONE);
     }
 
     @Override
@@ -1065,6 +1100,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onPlayer() {
+        if (mOffline != null) return;
         PlayerEngineDialog.show(this, mBinding.control.action.player, player());
         hideControl();
     }
@@ -1163,7 +1199,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.keep.setVisibility(mHistory == null || isFullscreen() ? View.GONE : View.VISIBLE);
         mBinding.control.action.getRoot().setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
         mBinding.control.right.lock.setVisibility(isFullscreen() ? View.VISIBLE : View.GONE);
-        mBinding.control.action.parse.setVisibility(isUseParse() ? View.VISIBLE : View.GONE);
+        mBinding.control.action.parse.setVisibility(isUseParse() || !VodConfig.get().getParses().isEmpty() ? View.VISIBLE : View.GONE);
         mBinding.control.info.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.control.cast.setVisibility(player().isEmpty() ? View.GONE : View.VISIBLE);
         mBinding.control.center.setVisibility(isLock() ? View.GONE : View.VISIBLE);
@@ -1323,7 +1359,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
 
     @Override
     protected void onError(String msg) {
-        mVod.playbackError(msg);
+        mVod.playbackError(mOffline == null ? msg : getString(R.string.offline_play_error));
     }
 
     @Override
@@ -1660,6 +1696,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     protected void onDestroy() {
         mClock.release();
         saveHistory(true);
+        if (mOffline != null) mOffline.close();
         Timer.get().reset();
         DanmakuApi.cancel();
         RefreshEvent.keep();

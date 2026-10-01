@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_title">快取</string>
+    <string name="offline_cache_episode">快取本集</string>
+    <string name="offline_empty">還沒有快取的影片\n在播放頁面點選“快取本集”，即可儲存完整一集</string>
+    <string name="offline_not_ready">請等待本集開始播放後再快取</string>
+    <string name="offline_unsupported">此影片為直播、受保護或特殊播放來源，暫不支援離線快取</string>
+    <string name="offline_preparing">正在準備整集快取…</string>
+    <string name="offline_added">已加入快取，可在“快取”查看</string>
+    <string name="offline_exists">本集已有快取工作，請在“快取”查看</string>
+    <string name="offline_storage_error">無法讀取快取，請檢查剩餘儲存空間後重試</string>
+    <string name="offline_prepare_error">準備快取失敗，請確認網路正常，並重新播放本集後再試</string>
+    <string name="offline_http_error">來源請求失敗，網址可能已過期；可重試，或刪除後重新播放本集並快取</string>
+    <string name="offline_download_error">快取失敗，請檢查網路和剩餘空間後重試</string>
+    <string name="offline_notification">正在快取影片，點選查看工作</string>
+    <string name="offline_waiting">等待網路或排隊中</string>
+    <string name="offline_downloading">快取中</string>
+    <string name="offline_completed">已完成</string>
+    <string name="offline_paused">已暫停</string>
+    <string name="offline_failed">快取失敗</string>
+    <string name="offline_removing">正在刪除</string>
+    <string name="offline_pause">暫停</string>
+    <string name="offline_continue">繼續</string>
+    <string name="offline_retry">重試</string>
+    <string name="offline_play">播放</string>
+    <string name="offline_delete">刪除</string>
+    <string name="offline_delete_question">刪除“%1$s”及其快取的影片資料？</string>
+    <string name="offline_cancel">取消</string>
+    <string name="offline_back">返回</string>
+    <string name="offline_missing">本集快取尚未完成或已被刪除</string>
+    <string name="offline_play_error">離線影片無法播放，快取資料可能已損壞，請重新快取</string>
+    <string name="offline_load_error">無法讀取快取清單</string>
+    <string name="offline_video_title" translatable="false">%1$s · %2$s</string>
+    <string name="offline_subtitle">整集儲存，隨時離線觀看</string>
+    <string name="offline_summary">已完成 %1$d · 未完成 %2$d · 已佔用 %3$s</string>
+    <string name="offline_loading">正在讀取快取…</string>
+    <string name="offline_close">關閉快取清單</string>
+    <string name="offline_danmaku_missing">缺少原始播放信息，请在线播放此集后重新缓存</string>
+    <string name="offline_danmaku_searching">正在云搜弹幕…</string>
+    <string name="offline_danmaku_error">未获取到弹幕，请检查网络和云搜服务</string>
+    <string name="offline_group_summary">%1$d 集 · %2$d 已完成 · %3$s</string>
+    <string name="offline_expand">展開 %1$s</string>
+    <string name="offline_collapse">摺疊 %1$s</string>
+</resources>

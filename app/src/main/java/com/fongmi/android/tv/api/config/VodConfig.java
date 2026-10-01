@@ -19,6 +19,7 @@ import com.github.catvod.bean.Header;
 import com.github.catvod.bean.Proxy;
 import com.github.catvod.utils.Json;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonElement;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -196,6 +197,39 @@ public class VodConfig extends BaseConfig {
 
     private void setSites(List<Site> sites) {
         this.sites = sites;
+    }
+
+    /** Restore dynamic playback entries for direct cache launches without a config URL request. */
+    public void restoreParses() {
+        if (!getParses().isEmpty()) return;
+        try {
+            Config saved = getConfig();
+            if (TextUtils.isEmpty(saved.getJson())) return;
+            JsonObject object = Json.parse(saved.getJson()).getAsJsonObject();
+            if (object.has("video")) object = object.getAsJsonObject("video");
+            List<Parse> restored = new ArrayList<>();
+            for (JsonElement element : Json.safeListElement(object, "parses")) {
+                Parse item = Parse.objectFrom(element);
+                if (!restored.contains(item)) restored.add(item);
+            }
+            if (restored.isEmpty()) return;
+            restored.add(0, Parse.god());
+            config = saved;
+            parses = restored;
+            setParse(saved, restored.stream().filter(item -> item.getName().equals(saved.getParse()))
+                    .findFirst().orElse(restored.get(0)), false);
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** Extension parsers need the same provider jar that normal playback initializes on Home. */
+    public void loadParseExtensions() {
+        Config saved = getConfig();
+        if (TextUtils.isEmpty(saved.getJson())) return;
+        JsonObject object = Json.parse(saved.getJson()).getAsJsonObject();
+        if (object.has("video")) object = object.getAsJsonObject("video");
+        BaseLoader.get().parseJar(Json.safeString(object, "spider"), true);
     }
 
     public List<Parse> getParses() {

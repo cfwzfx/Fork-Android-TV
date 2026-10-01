@@ -12,6 +12,14 @@ import java.util.List;
 
 public interface VodPlaybackHost {
 
+    default com.fongmi.android.tv.offline.OfflinePlayback getOfflinePlayback() { return null; }
+
+    default void dispatchOfflineDetail(Runnable ready) { ready.run(); }
+
+    default void startOfflinePlayback(Episode episode, long position, MediaMetadata metadata) {}
+
+    default void searchDanmaku(com.fongmi.android.tv.bean.Parse parse) {}
+
     String getVodKey();
 
     String getVodId();

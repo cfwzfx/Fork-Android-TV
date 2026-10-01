@@ -60,6 +60,16 @@ public class VodPlaybackController {
         String key = host.getVodKey();
         String id = host.getVodId();
         state.setDetailRequest(key, id);
+        com.fongmi.android.tv.offline.OfflinePlayback offline = host.getOfflinePlayback();
+        historyPolicy.setOffline(offline);
+        if (offline != null) {
+            offline.loadDetail(item -> {
+                host.dispatchOfflineDetail(() -> {
+                    if (!host.isHostFinishing() && offline == host.getOfflinePlayback()) detailLoaded(item);
+                });
+            });
+            return;
+        }
         dataSource.detailContent(key, id);
     }
 
@@ -192,6 +202,10 @@ public class VodPlaybackController {
     }
 
     public void selectParse(Parse item) {
+        if (host.getOfflinePlayback() != null || item.isDanmaku()) {
+            host.searchDanmaku(item);
+            return;
+        }
         VodConfig.get().setParse(item);
         refresh();
     }
@@ -236,7 +250,7 @@ public class VodPlaybackController {
     public void playbackError(String msg) {
         preloader.clear();
         host.resetPlaybackForError(msg);
-        fallbackPolicy.playbackError();
+        if (host.getOfflinePlayback() == null) fallbackPolicy.playbackError();
     }
 
     public void playbackEnded() {
@@ -420,7 +434,13 @@ public class VodPlaybackController {
         VodPlayRequest request = VodPlayRequest.create(host.getVodKey(), flag, episode);
         state.setPendingRequest(request);
         publishPlaybackMetadata(episode);
-        dataSource.playerContent(request);
+        if (host.getOfflinePlayback() != null) {
+            state.setPlayingRequest(request);
+            state.setUseParse(false);
+            host.renderUseParse(false);
+            host.renderQualityVisible(false);
+            host.startOfflinePlayback(episode, startPositionMs(), state.getPlaybackMetadata());
+        } else dataSource.playerContent(request);
         host.onPlaybackRequested();
     }
 

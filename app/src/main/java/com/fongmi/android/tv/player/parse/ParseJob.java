@@ -43,6 +43,7 @@ public class ParseJob implements ParseCallback {
     private ExecutorService infinite;
     private ParseCallback callback;
     private Parse parse;
+    private boolean danmakuOnly;
 
     private ParseJob(ParseCallback callback) {
         this.executor = Executors.newSingleThreadExecutor();
@@ -59,6 +60,25 @@ public class ParseJob implements ParseCallback {
         setParse(result, useParse);
         execute(result);
         return this;
+    }
+
+    public ParseJob startDanmaku(Result result, Parse item) {
+        danmakuOnly = true;
+        parse = Parse.objectFrom(App.gson().toJsonTree(item));
+        parse.setHeader(result.getHeader());
+        parse.setClick(getClick(result));
+        execute(result);
+        return this;
+    }
+
+    private boolean checkDanmaku(Result result) {
+        if (!danmakuOnly) return false;
+        if (result.getDanmaku(true).isEmpty()) onParseError();
+        else if (done.compareAndSet(false, true)) App.post(() -> {
+            if (callback != null) callback.onParseDanmaku(result.getDanmaku(true));
+            stop();
+        });
+        return true;
     }
 
     private void setParse(Result result, boolean useParse) {
@@ -86,6 +106,7 @@ public class ParseJob implements ParseCallback {
     private Runnable getTask(Result result) {
         return () -> {
             try {
+                if (danmakuOnly && (parse.getType() == 2 || parse.getType() == 3)) VodConfig.get().loadParseExtensions();
                 doInBackground(result.getKey(), result.getUrl().v(), result.getFlag());
             } catch (Throwable e) {
                 onParseError();
@@ -119,7 +140,11 @@ public class ParseJob implements ParseCallback {
             String url = Json.safeString(object, "url");
             JsonObject data = object.getAsJsonObject("data");
             if (url.isEmpty()) url = Json.safeString(data, "url");
-            checkResult(getHeader(object), url, item.getName(), fatal);
+            if (danmakuOnly) {
+                Result comments = Result.fromJson(object.toString());
+                if (comments.getDanmaku(true).isEmpty() && data != null) comments = Result.fromJson(data.toString());
+                checkDanmaku(comments);
+            } else checkResult(getHeader(object), url, item.getName(), fatal);
         }
     }
 
@@ -162,6 +187,7 @@ public class ParseJob implements ParseCallback {
     }
 
     private void checkResult(Result result) {
+        if (checkDanmaku(result)) return;
         result.setHeader(parse.getHeader());
         if (result.getUrl().isEmpty()) onParseError();
         else if (result.needParse()) startWeb(result.getHeader(), UrlUtil.convert(result.getUrl().v()));
@@ -198,6 +224,7 @@ public class ParseJob implements ParseCallback {
 
     @Override
     public void onParseSuccess(Map<String, String> headers, String url, String from) {
+        if (danmakuOnly) { onParseError(); return; }
         if (!done.compareAndSet(false, true)) return;
         App.post(() -> {
             if (callback != null) callback.onParseSuccess(headers, url, from);

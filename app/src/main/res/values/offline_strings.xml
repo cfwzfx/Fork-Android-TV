@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_title">Cache</string>
+    <string name="offline_cache_episode">Cache episode</string>
+    <string name="offline_empty">No cached videos yet\nTap “Cache episode” on the playback screen to save a complete episode</string>
+    <string name="offline_not_ready">Wait for this episode to start playing before caching</string>
+    <string name="offline_unsupported">Live, protected or special playback sources are not supported for offline caching</string>
+    <string name="offline_preparing">Preparing episode cache…</string>
+    <string name="offline_added">Added to downloads. Check Cache for progress</string>
+    <string name="offline_exists">This episode already has a cache task. Check Cache</string>
+    <string name="offline_storage_error">Cannot read cache. Check available storage and try again</string>
+    <string name="offline_prepare_error">Cannot prepare cache. Check your connection and play this episode again before retrying</string>
+    <string name="offline_http_error">Source request failed. The URL may have expired. Retry, or delete and cache the episode again while playing it</string>
+    <string name="offline_download_error">Download failed. Check your connection and available storage before retrying</string>
+    <string name="offline_notification">Caching videos. Tap to view tasks</string>
+    <string name="offline_waiting">Waiting for network or queued</string>
+    <string name="offline_downloading">Downloading</string>
+    <string name="offline_completed">Completed</string>
+    <string name="offline_paused">Paused</string>
+    <string name="offline_failed">Failed</string>
+    <string name="offline_removing">Deleting</string>
+    <string name="offline_pause">Pause</string>
+    <string name="offline_continue">Resume</string>
+    <string name="offline_retry">Retry</string>
+    <string name="offline_play">Play</string>
+    <string name="offline_delete">Delete</string>
+    <string name="offline_delete_question">Delete “%1$s” and its cached video data?</string>
+    <string name="offline_cancel">Cancel</string>
+    <string name="offline_back">Back</string>
+    <string name="offline_missing">This episode is incomplete or has been deleted</string>
+    <string name="offline_play_error">Offline playback failed. The cache may be damaged. Cache the episode again</string>
+    <string name="offline_load_error">Cannot read downloads</string>
+    <string name="offline_video_title" translatable="false">%1$s · %2$s</string>
+    <string name="offline_subtitle">Complete episodes, ready to watch offline</string>
+    <string name="offline_summary">%1$d saved · %2$d pending · %3$s used</string>
+    <string name="offline_loading">Loading downloads…</string>
+    <string name="offline_close">Close downloads</string>
+    <string name="offline_danmaku_missing">Missing original playback information. Play this episode online and cache it again.</string>
+    <string name="offline_danmaku_searching">Searching for danmaku…</string>
+    <string name="offline_danmaku_error">No danmaku found. Check your connection and the search service.</string>
+    <string name="offline_group_summary">%1$d episodes · %2$d ready · %3$s</string>
+    <string name="offline_expand">Expand %1$s</string>
+    <string name="offline_collapse">Collapse %1$s</string>
+</resources>

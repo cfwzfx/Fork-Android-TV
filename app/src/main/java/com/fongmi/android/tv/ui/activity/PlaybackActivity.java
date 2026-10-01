@@ -53,6 +53,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     private final DanmakuViewAdapter danmakuController = new DanmakuViewAdapter();
     private final List<ServiceReadyObserver<?>> serviceReadyObservers = new ArrayList<>();
+    private final List<Runnable> serviceReadyActions = new ArrayList<>();
     private final List<Runnable> foreverObserverRemovers = new ArrayList<>();
     private ListenableFuture<MediaController> mControllerFuture;
     private MediaController mController;
@@ -148,6 +149,11 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         ServiceReadyObserver<T> serviceObserver = new ServiceReadyObserver<>(observer);
         serviceReadyObservers.add(serviceObserver);
         observeForever(liveData, serviceObserver);
+    }
+
+    protected void runWhenServiceReady(Runnable work) {
+        if (canDispatch()) work.run();
+        else serviceReadyActions.add(work);
     }
 
     public void toggleDebugView() {
@@ -263,8 +269,16 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     private void startPlayerInternal(String key, Result result, boolean useParse, long timeout, long startPositionMs, MediaMetadata metadata) {
         attachPlayerView();
         updateNavigationKey(key);
+        player().setSourceResult(result);
         if (result.needParse() || useParse) player().parse(key, result, useParse, metadata, startPositionMs);
         else player().start(PlaySpec.from(result, key, metadata), timeout, startPositionMs);
+    }
+
+    protected void startOfflinePlayer(com.fongmi.android.tv.offline.OfflinePlayback offline,
+                                      com.fongmi.android.tv.bean.Episode episode, long position, MediaMetadata metadata) {
+        attachPlayerView();
+        updateNavigationKey();
+        offline.play(episode, player(), () -> onError(getString(R.string.offline_missing)), position, metadata, getPlaybackKey());
     }
 
     private void bindPlaybackService() {
@@ -487,11 +501,15 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
         foreverObserverRemovers.forEach(Runnable::run);
         foreverObserverRemovers.clear();
         serviceReadyObservers.clear();
+        serviceReadyActions.clear();
     }
 
     private void dispatchPendingObservers() {
         if (!canDispatch()) return;
         serviceReadyObservers.forEach(ServiceReadyObserver::dispatch);
+        List<Runnable> actions = new ArrayList<>(serviceReadyActions);
+        serviceReadyActions.clear();
+        actions.forEach(Runnable::run);
     }
 
     private final PlaybackService.PlayerCallback mPlayerCallback = new PlaybackService.PlayerCallback() {

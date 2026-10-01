@@ -126,7 +126,7 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     private void setParse() {
-        setParseVisible(parse);
+        setParseVisible(parse || !com.fongmi.android.tv.api.config.VodConfig.get().getParses().isEmpty());
         binding.parse.setHasFixedSize(true);
         binding.parse.setItemAnimator(null);
         binding.parse.addItemDecoration(new SpaceItemDecoration(8));
