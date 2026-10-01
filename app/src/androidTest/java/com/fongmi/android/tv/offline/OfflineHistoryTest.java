@@ -116,8 +116,20 @@ public class OfflineHistoryTest {
         other.save();
         assertEquals(C.TIME_UNSET, OfflineHistory.restore(video).getPosition());
         other.setVodRemarks("第1集");
+        other.setVodFlag("另一条线路");
         other.save();
         assertEquals(C.TIME_UNSET, OfflineHistory.restore(video).getPosition());
+    }
+
+    @Test public void refreshedEpisodeUrlKeepsLatestProgressForTheSameNamedEpisode() throws Exception {
+        History latest = original.copy();
+        latest.setEpisodeUrl("https://example.test/refreshed/1?token=new");
+        latest.setPosition(4200); latest.setCreateTime(400); latest.save();
+        assertEquals("URL changes must not reset progress for the same exact episode", 4200, OfflineHistory.restore(video).getPosition());
+        OfflineHistory.save(video, progress(500, 5600), false);
+        flush();
+        assertEquals("Offline progress must preserve the current online episode URL", latest.getEpisodeUrl(), online().getEpisodeUrl());
+        assertEquals(5600, online().getPosition());
     }
 
     @Test public void staleOfflineSaveCannotOverwriteNewerOnlineProgress() throws Exception {

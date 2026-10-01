@@ -54,13 +54,26 @@ public final class OfflineVideo {
     }
 
     static String identity(com.fongmi.android.tv.bean.History history) {
+        String name = history.getVodRemarks();
+        org.json.JSONArray episode = name.trim().isEmpty()
+                ? new org.json.JSONArray().put("url").put(history.getEpisodeUrl())
+                : new org.json.JSONArray().put("name").put(name);
         return new org.json.JSONArray().put(history.getKey()).put(history.getVodFlag())
-                .put(history.getEpisodeUrl()).toString();
+                .put(episode).toString();
+    }
+
+    private static boolean hasEpisode(com.fongmi.android.tv.bean.History history) {
+        return !history.getVodRemarks().trim().isEmpty() || !history.getEpisodeUrl().isEmpty();
+    }
+
+    static boolean sameEpisode(com.fongmi.android.tv.bean.History first, com.fongmi.android.tv.bean.History second) {
+        return first != null && second != null && hasEpisode(first) && hasEpisode(second)
+                && identity(first).equals(identity(second));
     }
 
     String episodeKey() {
         com.fongmi.android.tv.bean.History original = OfflineHistory.original(this);
-        return original == null || original.getEpisodeUrl().isEmpty() ? "id:" + id : identity(original);
+        return original == null || !hasEpisode(original) ? "id:" + id : identity(original);
     }
 
     OfflineVideo withMimeType(String mime) {

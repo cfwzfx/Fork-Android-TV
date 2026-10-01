@@ -33,10 +33,7 @@ final class OfflineHistory {
         History latest = online;
         if (latest == null) latest = original;
         History restored = latest == null ? new History() : latest.copy();
-        boolean sameEpisode = latest != null && video.episode.equals(latest.getVodRemarks());
-        if (sameEpisode && latest == online && original != null && !original.getEpisodeUrl().isEmpty()) {
-            sameEpisode = original.getEpisodeUrl().equals(online.getEpisodeUrl());
-        }
+        boolean sameEpisode = OfflineVideo.sameEpisode(original, latest);
         if (!sameEpisode) {
             restored.setPosition(C.TIME_UNSET);
             restored.setDuration(C.TIME_UNSET);
@@ -61,6 +58,8 @@ final class OfflineHistory {
         Task.executeSerial(() -> {
             History existing = AppDatabase.get().getHistoryDao().find(copy.getCid(), copy.getKey());
             if (existing != null && existing.getCreateTime() > copy.getCreateTime()) return;
+            if (OfflineVideo.sameEpisode(original, existing) && !existing.getEpisodeUrl().isEmpty())
+                copy.setEpisodeUrl(existing.getEpisodeUrl());
             // No name-based merge: an offline task must only update its own original record.
             copy.save();
             if (exit) RefreshEvent.history();

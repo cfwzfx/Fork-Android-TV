@@ -1271,9 +1271,68 @@ public class OfflineCacheTest {
     }
 
     private String independentId(com.fongmi.android.tv.bean.History history) {
-        String identity = new org.json.JSONArray().put(history.getKey()).put(history.getVodFlag())
-                .put(history.getEpisodeUrl()).toString();
+        String identity = OfflineVideo.identity(history);
         return UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    @Test
+    public void refreshedEpisodeUrlStillFindsCacheAndCannotCreateAnotherDownload() throws Exception {
+        OfflineVideo video = transferable("a/sample.mp4");
+        add(video);
+        Download completed = waitState(video.id, Download.STATE_COMPLETED);
+        com.fongmi.android.tv.bean.History refreshed = OfflineHistory.original(video).copy();
+        refreshed.setEpisodeUrl("https://episode.test/refreshed?token=new&time=999999");
+        assertNotNull("Same source, show, line and exact episode name must match after URL refresh", cache.completedFor(refreshed));
+        assertEquals(completed.request.id, cache.completedFor(refreshed).request.id);
+        AtomicInteger resolutions = new AtomicInteger(), message = new AtomicInteger();
+        CountDownLatch done = new CountDownLatch(1);
+        main(() -> cache.requestEpisode(refreshed, ready -> {
+            resolutions.incrementAndGet(); ready.complete(R.string.offline_unsupported);
+        }, result -> { if (result != R.string.offline_preparing) { message.set(result); done.countDown(); } }));
+        assertTrue(done.await(10, TimeUnit.SECONDS));
+        assertEquals("Do not resolve a new signed URL for an existing cache", 0, resolutions.get());
+        assertEquals(R.string.offline_already_cached, message.get());
+        OfflineVideo duplicate = new OfflineVideo(OfflineVideo.identity(refreshed), video.title, video.episode, video.line,
+                server.url("a/slow.mp4"), video.mimeType, video.headers, refreshed.toString(), video.danmaku, video.source);
+        ids.add(duplicate.id);
+        int requests = server.requests.get();
+        main(() -> cache.add(duplicate, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, message::set));
+        assertEquals(R.string.offline_already_cached, message.get());
+        assertEquals("Duplicate cache must not contact the source", requests, server.requests.get());
+        assertEquals("Refreshed URLs must keep the same new task identity", video.id, duplicate.id);
+        assertEquals("A duplicate request must leave the completed media unchanged", completed.request.uri, cache.find(video.id).request.uri);
+    }
+
+    @Test public void refreshedEpisodeUrlSharesThePreparationReservation() throws Exception {
+        com.fongmi.android.tv.bean.History first = independentHistory();
+        com.fongmi.android.tv.bean.History refreshed = first.copy();
+        refreshed.setEpisodeUrl("https://episode.test/changed?token=2");
+        AtomicInteger resolutions = new AtomicInteger(), message = new AtomicInteger();
+        CountDownLatch reserved = new CountDownLatch(1);
+        OfflineCache.Callback[] finish = new OfflineCache.Callback[1];
+        try {
+            main(() -> cache.requestEpisode(first, ready -> {
+                resolutions.incrementAndGet(); finish[0] = ready; reserved.countDown();
+            }, result -> {}));
+            assertTrue(reserved.await(10, TimeUnit.SECONDS));
+            main(() -> cache.requestEpisode(refreshed, ready -> {
+                resolutions.incrementAndGet(); ready.complete(R.string.offline_unsupported);
+            }, message::set));
+            assertEquals(R.string.offline_preparing, message.get());
+            assertEquals("Signed URL changes must not start simultaneous preparation", 1, resolutions.get());
+        } finally { main(() -> { if (finish[0] != null) finish[0].complete(R.string.offline_unsupported); }); }
+    }
+
+    @Test public void unnamedEpisodesStillRequireExactOriginalUrls() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        history.setVodRemarks("");
+        OfflineVideo video = new OfflineVideo(OfflineVideo.identity(history), history.getVodName(), "", history.getVodFlag(),
+                server.url("a/sample.mp4"), null, Map.of("Cookie", "alpha"), history.toString(), "[]");
+        ids.add(video.id); add(video); waitState(video.id, Download.STATE_COMPLETED);
+        assertNotNull(cache.completedFor(history));
+        com.fongmi.android.tv.bean.History other = history.copy();
+        other.setEpisodeUrl("https://episode.test/another-unnamed");
+        assertNull("Do not collapse all unnamed episodes into one task", cache.completedFor(other));
     }
 
     @Test
@@ -1289,11 +1348,20 @@ public class OfflineCacheTest {
         other.setVodFlag("another line");
         assertNull(cache.completedFor(other));
         other = history.copy();
-        other.setEpisodeUrl("https://example.com/another-episode");
+        other.setVodRemarks("第3集");
         assertNull(cache.completedFor(other));
+        other = history.copy();
+        other.setVodRemarks("第02集");
+        assertNull("Episode names are exact, not number-based", cache.completedFor(other));
         other = history.copy();
         other.setKey("another@@@show@@@0");
         assertNull(cache.completedFor(other));
+        other = history.copy();
+        other.setKey("push_agent@@@another-show@@@0");
+        assertNull("Same source and title cannot substitute another show ID", cache.completedFor(other));
+        other = history.copy();
+        other.cid(1);
+        assertNull("Same source and show in another configuration cannot match", cache.completedFor(other));
         java.lang.reflect.Field field = OfflineCache.class.getDeclaredField("cache");
         field.setAccessible(true);
         androidx.media3.datasource.cache.SimpleCache storage = (androidx.media3.datasource.cache.SimpleCache) field.get(cache);
@@ -1328,6 +1396,7 @@ public class OfflineCacheTest {
         ids.add(video.id);
         add(video);
         waitState(video.id, Download.STATE_COMPLETED);
+        history.setEpisodeUrl("https://catalog.example/refreshed/episode?token=2");
         int requests = server.requests.get();
         server.blocked = true;
         com.fongmi.android.tv.player.PlayerManager[] players = new com.fongmi.android.tv.player.PlayerManager[1];

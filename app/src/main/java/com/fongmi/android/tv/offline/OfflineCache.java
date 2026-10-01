@@ -178,16 +178,14 @@ public final class OfflineCache {
         return manager.getDownloadIndex().getDownload(id);
     }
 
-    /** Exact original identity only; titles and refreshed signed media URLs are not identifiers. */
+    /** Exact configuration/source/show/line/episode-name identity; unnamed episodes use their URL. */
     Download completedFor(com.fongmi.android.tv.bean.History history) throws IOException {
         for (Download download : list()) {
             if (download.state != Download.STATE_COMPLETED) continue;
             try {
                 OfflineVideo video = OfflineVideo.decode(download.request.data);
                 com.fongmi.android.tv.bean.History original = OfflineHistory.original(video);
-                if (original == null || !original.getKey().equals(history.getKey())
-                        || !original.getVodFlag().equals(history.getVodFlag())
-                        || !original.getEpisodeUrl().equals(history.getEpisodeUrl())) continue;
+                if (!OfflineVideo.sameEpisode(original, history)) continue;
                 long available = 0;
                 for (String key : cache.getKeys()) {
                     if (!key.startsWith(video.id + ":")) continue;
