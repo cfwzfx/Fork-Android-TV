@@ -22,6 +22,12 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
     private final OnClickListener listener;
     private final List<Episode> mItems;
     private final int viewType;
+    private java.util.function.Consumer<Episode> cache;
+
+    public EpisodeAdapter cache(java.util.function.Consumer<Episode> callback) {
+        cache = callback;
+        return this;
+    }
 
     public EpisodeAdapter(OnClickListener listener, int viewType) {
         this(listener, viewType, new ArrayList<>());
@@ -96,6 +102,18 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
     @NonNull
     @Override
     public BaseEpisodeHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        if (cache != null) {
+            com.fongmi.android.tv.databinding.AdapterEpisodeCacheBinding binding =
+                    com.fongmi.android.tv.databinding.AdapterEpisodeCacheBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false);
+            return new BaseEpisodeHolder(binding.getRoot()) {
+                @Override public void initView(Episode item) {
+                    binding.text.setText(item.getDesc().concat(item.getName()));
+                    binding.text.setSelected(item.isSelected());
+                    binding.text.setOnClickListener(v -> listener.onItemClick(item));
+                    binding.episodeCache.setOnClickListener(v -> cache.accept(item));
+                }
+            };
+        }
         if (viewType == ViewType.HORI) {
             return new EpisodeHoriHolder(AdapterEpisodeHoriBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false), listener);
         } else {

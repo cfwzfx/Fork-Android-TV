@@ -23,14 +23,14 @@ import java.util.HashMap;
 
 /**
  * Public host integration: resume(Context), open(Context), showPanel(FragmentActivity),
- * cacheCurrent(Activity, PlayerManager, History).
+ * cacheCurrent(Activity, PlayerManager, History), cacheEpisode(Context, History).
  * These are the only calls needed by upstream pages. All host player/network knowledge stays here.
  */
 public final class OfflineIntegration {
     private OfflineIntegration() {}
 
     public static OfflineCache get(Context context) {
-        return OfflineCache.get(context, headers -> new androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(OkHttp.client())
+        return OfflineCache.get(context, headers -> new androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(OkHttp.player())
                 .setDefaultRequestProperties(new HashMap<>(headers)));
     }
 
@@ -60,26 +60,29 @@ public final class OfflineIntegration {
 
     public static void cacheCurrent(Activity activity, PlayerManager players, History history) {
         if (players.isOffline()) {
-            show(activity, R.string.offline_exists);
+            show(activity, R.string.offline_already_cached);
             return;
         }
-        if (history == null || players.getPlayer() == null || players.getPlayer().getPlaybackState() != Player.STATE_READY) {
-            show(activity, R.string.offline_not_ready);
+        if (history == null) { show(activity, R.string.offline_not_ready); return; }
+        history = history.copy();
+        if (players.getPlayer() == null || players.getPlayer().getPlaybackState() != Player.STATE_READY) {
+            cacheEpisode(activity, history);
             return;
         }
         MediaItem item = players.getPlayer().getCurrentMediaItem();
         MediaItem.LocalConfiguration config = item == null ? null : item.localConfiguration;
-        String url = config == null ? null : config.uri.toString();
-        if (config == null || config.drmConfiguration != null || url == null
+        if (config == null) { cacheEpisode(activity, history); return; }
+        String url = config.uri.toString();
+        if (config.drmConfiguration != null || url == null
                 || !(url.startsWith("https://") || url.startsWith("http://"))
                 || url.contains("***") || players.getPlayer().isCurrentMediaItemLive()) {
-            show(activity, R.string.offline_unsupported);
+            Context application = activity.getApplicationContext();
+            get(application).requestEpisode(history, ready -> ready.complete(R.string.offline_unsupported),
+                    message -> show(application, message));
             return;
         }
         Format format = selectedFormat(players, C.TRACK_TYPE_VIDEO);
-        String quality = format == null ? "audio" : format.width + "x" + format.height + ":" + format.bitrate + ":" + format.codecs;
-        String identity = new org.json.JSONArray().put(history.getKey()).put(history.getVodFlag())
-                .put(history.getEpisodeUrl()).put(quality).toString();
+        String identity = OfflineVideo.identity(history);
         OfflineVideo video = new OfflineVideo(identity, history.getVodName(), history.getVodRemarks(),
                 history.getVodFlag(), url, config.mimeType, players.getHeaders(),
                 history.toString(), App.gson().toJson(players.getDanmakus()), players.getSourceResult());
@@ -91,10 +94,29 @@ public final class OfflineIntegration {
         if (audio != null && audio.language != null) selection.setPreferredAudioLanguage(audio.language);
         try {
             Context application = activity.getApplicationContext();
-            get(activity).add(video, selection.build(), message -> show(application, message));
+            History snapshot = history.copy();
+            get(activity).requestEpisode(snapshot, ready -> get(application).add(video, selection.build(), message -> {
+                // Keep the episode reservation while refreshing an expired playback URL once.
+                if (message == R.string.offline_invalid_content || message == R.string.offline_http_error)
+                    OfflineEpisodeResolver.resolve(application, snapshot, ready);
+                else ready.complete(message);
+            }), message -> show(application, message));
         } catch (RuntimeException e) {
             show(activity, R.string.offline_storage_error);
         }
+    }
+
+    public static void cacheEpisode(Context context, History history) {
+        if (history == null || history.getEpisodeUrl().isEmpty()) {
+            show(context, R.string.offline_not_ready);
+            return;
+        }
+        Context application = context.getApplicationContext();
+        History snapshot = history.copy();
+        try {
+            get(application).requestEpisode(snapshot, ready -> OfflineEpisodeResolver.resolve(application, snapshot, ready),
+                    message -> show(application, message));
+        } catch (RuntimeException error) { show(application, R.string.offline_storage_error); }
     }
 
     private static Format selectedFormat(PlayerManager players, int type) {
@@ -105,7 +127,7 @@ public final class OfflineIntegration {
         return null;
     }
 
-    private static TrackSelectionParameters.Builder downloadParameters() {
+    static TrackSelectionParameters.Builder downloadParameters() {
         return androidx.media3.exoplayer.offline.DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
     }

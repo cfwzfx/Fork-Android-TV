@@ -345,7 +345,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @SuppressLint("ClickableViewAccessibility")
     protected void initEvent() {
         mBinding.control.offlineCache.setOnClickListener(v -> {
-            if (service() == null) { Notify.show(R.string.offline_not_ready); return; }
+            if (mOffline != null) { Notify.show(R.string.offline_already_cached); return; }
+            if (service() == null) {
+                com.fongmi.android.tv.offline.OfflineIntegration.cacheEpisode(this, mHistory);
+                return;
+            }
             com.fongmi.android.tv.offline.OfflineIntegration.cacheCurrent(this, player(), mHistory);
         });
         mBinding.control.offlineCache.setOnLongClickListener(v -> { com.fongmi.android.tv.offline.OfflineIntegration.open(this); return true; });
@@ -1095,12 +1099,26 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.action.opening.setText(opening <= 0 ? getString(R.string.play_op) : Util.timeMs(mHistory.getOpening()));
     }
 
+    private void cacheEpisode(Episode episode) {
+        if (mHistory == null) { Notify.show(R.string.offline_not_ready); return; }
+        History snapshot = mHistory.copy();
+        if (!mFlagAdapter.isEmpty()) snapshot.setVodFlag(mFlagAdapter.get(mFlagAdapter.getPosition()).getFlag());
+        snapshot.setVodRemarks(episode.getName());
+        snapshot.setEpisodeUrl(episode.getUrl());
+        if (!episode.getUrl().equals(mHistory.getEpisodeUrl()) || !snapshot.getVodFlag().equals(mHistory.getVodFlag())) {
+            snapshot.setPosition(0);
+            snapshot.setDuration(androidx.media3.common.C.TIME_UNSET);
+        }
+        com.fongmi.android.tv.offline.OfflineIntegration.cacheEpisode(this, snapshot);
+    }
+
     private void onEpisodes() {
-        EpisodeListDialog.create().episodes(mEpisodeAdapter.getItems()).show(this);
+        EpisodeListDialog.create().episodes(mEpisodeAdapter.getItems())
+                .cache(mOffline == null ? this::cacheEpisode : null).show(this);
     }
 
     private void onPlayer() {
-        if (mOffline != null) return;
+        if (mOffline != null || isCachedPlayback()) return;
         PlayerEngineDialog.show(this, mBinding.control.action.player, player());
         hideControl();
     }

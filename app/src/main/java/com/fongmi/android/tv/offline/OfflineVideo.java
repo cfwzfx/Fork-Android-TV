@@ -53,6 +53,20 @@ public final class OfflineVideo {
         this.danmaku = danmaku == null ? "[]" : danmaku;
     }
 
+    static String identity(com.fongmi.android.tv.bean.History history) {
+        return new org.json.JSONArray().put(history.getKey()).put(history.getVodFlag())
+                .put(history.getEpisodeUrl()).toString();
+    }
+
+    String episodeKey() {
+        com.fongmi.android.tv.bean.History original = OfflineHistory.original(this);
+        return original == null || original.getEpisodeUrl().isEmpty() ? "id:" + id : identity(original);
+    }
+
+    OfflineVideo withMimeType(String mime) {
+        return new OfflineVideo(id, title, episode, line, url, mime, headers, history, danmaku, source, true);
+    }
+
     public String groupKey() {
         try {
             String original = new JSONObject(history).optString("key");

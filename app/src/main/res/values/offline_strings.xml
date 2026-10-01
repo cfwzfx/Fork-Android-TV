@@ -3,13 +3,13 @@
     <string name="offline_title">Cache</string>
     <string name="offline_cache_episode">Cache episode</string>
     <string name="offline_empty">No cached videos yet\nTap “Cache episode” on the playback screen to save a complete episode</string>
-    <string name="offline_not_ready">Wait for this episode to start playing before caching</string>
+    <string name="offline_not_ready">Select an episode before caching</string>
     <string name="offline_unsupported">Live, protected or special playback sources are not supported for offline caching</string>
     <string name="offline_preparing">Preparing episode cache…</string>
     <string name="offline_added">Added to downloads. Check Cache for progress</string>
     <string name="offline_exists">This episode already has a cache task. Check Cache</string>
     <string name="offline_storage_error">Cannot read cache. Check available storage and try again</string>
-    <string name="offline_prepare_error">Cannot prepare cache. Check your connection and play this episode again before retrying</string>
+    <string name="offline_prepare_error">Cannot prepare cache. Check your network or video source and retry.</string>
     <string name="offline_http_error">Source request failed. The URL may have expired. Retry, or delete and cache the episode again while playing it</string>
     <string name="offline_download_error">Download failed. Check your connection and available storage before retrying</string>
     <string name="offline_notification">Caching videos. Tap to view tasks</string>
@@ -41,4 +41,7 @@
     <string name="offline_group_summary">%1$d episodes · %2$d ready · %3$s</string>
     <string name="offline_expand">Expand %1$s</string>
     <string name="offline_collapse">Collapse %1$s</string>
+    <string name="offline_invalid_content">The source returned no valid video. Its URL may have expired; resolve the episode again and retry.</string>
+    <string name="offline_resolve_error">Could not resolve the episode for caching. Check the source and retry.</string>
+    <string name="offline_already_cached">This episode is already cached</string>
 </resources>

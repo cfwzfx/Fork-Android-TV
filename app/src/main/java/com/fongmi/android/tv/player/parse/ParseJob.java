@@ -86,6 +86,8 @@ public class ParseJob implements ParseCallback {
         if (result.getPlayUrl().startsWith("json:")) parse = Parse.get(1, result.getPlayUrl().substring(5));
         if (result.getPlayUrl().startsWith("parse:")) parse = VodConfig.get().getParse(result.getPlayUrl().substring(6));
         if (parse == null || parse.isEmpty()) parse = Parse.get(0, result.getPlayUrl());
+        // Each job owns its headers/click rules; episode caching may resolve alongside playback.
+        parse = Parse.objectFrom(App.gson().toJsonTree(parse));
         parse.setHeader(result.getHeader());
         parse.setClick(getClick(result));
     }

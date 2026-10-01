@@ -320,7 +320,11 @@ public class VideoActivity extends PlaybackActivity implements VodPlaybackHost, 
     @SuppressLint("ClickableViewAccessibility")
     protected void initEvent() {
         mBinding.offlineCache.setOnClickListener(v -> {
-            if (service() == null) { Notify.show(R.string.offline_not_ready); return; }
+            if (mOffline != null) { Notify.show(R.string.offline_already_cached); return; }
+            if (service() == null) {
+                com.fongmi.android.tv.offline.OfflineIntegration.cacheEpisode(this, mHistory);
+                return;
+            }
             com.fongmi.android.tv.offline.OfflineIntegration.cacheCurrent(this, player(), mHistory);
         });
         mBinding.offlineCache.setOnLongClickListener(v -> { com.fongmi.android.tv.offline.OfflineIntegration.open(this); return true; });
@@ -1028,7 +1032,7 @@ public class VideoActivity extends PlaybackActivity implements VodPlaybackHost, 
     }
 
     private void onPlayer() {
-        if (mOffline != null) return;
+        if (mOffline != null || isCachedPlayback()) return;
         PlayerEngineDialog.show(this, mBinding.control.action.player, player());
         hideControl();
     }

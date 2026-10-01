@@ -22,6 +22,12 @@ public class EpisodeListDialog extends BaseSideSheetDialog implements EpisodeAda
     private DialogEpisodeListBinding binding;
     private EpisodeAdapter adapter;
     private List<Episode> episodes;
+    private java.util.function.Consumer<Episode> cache;
+
+    public EpisodeListDialog cache(java.util.function.Consumer<Episode> callback) {
+        cache = callback;
+        return this;
+    }
 
     public static EpisodeListDialog create() {
         return new EpisodeListDialog();
@@ -46,7 +52,7 @@ public class EpisodeListDialog extends BaseSideSheetDialog implements EpisodeAda
     protected int getWidth() {
         int minWidth = ResUtil.dp2px(200);
         int maxWidth = ResUtil.getScreenWidth() / 3;
-        for (Episode item : episodes) minWidth = Math.max(minWidth, ResUtil.getTextWidth(item.getName(), 14));
+        for (Episode item : episodes) minWidth = Math.max(minWidth, ResUtil.getTextWidth(item.getName(), 14) + (cache == null ? 0 : ResUtil.dp2px(52)));
         return Math.min(minWidth, maxWidth);
     }
 
@@ -60,7 +66,7 @@ public class EpisodeListDialog extends BaseSideSheetDialog implements EpisodeAda
     private void setRecyclerView() {
         binding.recycler.setHasFixedSize(true);
         binding.recycler.setItemAnimator(null);
-        binding.recycler.setAdapter(adapter = new EpisodeAdapter(this, ViewType.GRID));
+        binding.recycler.setAdapter(adapter = new EpisodeAdapter(this, ViewType.GRID).cache(cache));
     }
 
     @Override

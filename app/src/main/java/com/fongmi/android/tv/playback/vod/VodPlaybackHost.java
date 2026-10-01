@@ -18,6 +18,13 @@ public interface VodPlaybackHost {
 
     default void startOfflinePlayback(Episode episode, long position, MediaMetadata metadata) {}
 
+    default boolean isCachedPlayback() { return false; }
+
+    default void tryCachedPlayback(History history, long position, MediaMetadata metadata,
+                                   java.util.function.BooleanSupplier valid, java.util.function.Consumer<Boolean> ready) {
+        ready.accept(false);
+    }
+
     default void searchDanmaku(com.fongmi.android.tv.bean.Parse parse) {}
 
     String getVodKey();

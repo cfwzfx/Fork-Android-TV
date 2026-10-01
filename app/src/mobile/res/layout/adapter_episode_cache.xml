@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="6dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical">
+
+    <com.google.android.material.textview.MaterialTextView
+        android:id="@+id/text"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:background="@drawable/shape_accent"
+        android:ellipsize="end"
+        android:focusable="true"
+        android:gravity="center"
+        android:minHeight="48dp"
+        android:padding="8dp"
+        android:maxLines="2"
+        android:textColor="@color/selector_control"
+        android:textSize="14sp" />
+
+    <androidx.appcompat.widget.AppCompatImageButton
+        android:id="@+id/episode_cache"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="4dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/offline_cache_episode"
+        android:padding="12dp"
+        android:src="@drawable/offline_download"
+        android:tint="@color/selector_control" />
+</LinearLayout>

@@ -267,11 +267,27 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
     }
 
     private void startPlayerInternal(String key, Result result, boolean useParse, long timeout, long startPositionMs, MediaMetadata metadata) {
+        if (cachedVod != null) cachedVod.cancel();
         attachPlayerView();
         updateNavigationKey(key);
         player().setSourceResult(result);
         if (result.needParse() || useParse) player().parse(key, result, useParse, metadata, startPositionMs);
         else player().start(PlaySpec.from(result, key, metadata), timeout, startPositionMs);
+    }
+
+    private com.fongmi.android.tv.offline.CachedVodPlayback cachedVod;
+
+    public boolean isCachedPlayback() { return service() != null && isOwner() && player().isOffline(); }
+
+    public void tryCachedPlayback(com.fongmi.android.tv.bean.History history, long position, MediaMetadata metadata,
+                                  java.util.function.BooleanSupplier valid, java.util.function.Consumer<Boolean> ready) {
+        runWhenServiceReady(() -> {
+            if (!valid.getAsBoolean() || isDestroyed()) return;
+            if (cachedVod == null) cachedVod = new com.fongmi.android.tv.offline.CachedVodPlayback(this);
+            attachPlayerView();
+            updateNavigationKey();
+            cachedVod.start(history, player(), position, metadata, getPlaybackKey(), valid, ready);
+        });
     }
 
     protected void startOfflinePlayer(com.fongmi.android.tv.offline.OfflinePlayback offline,
@@ -643,6 +659,7 @@ public abstract class PlaybackActivity extends BaseActivity implements MediaCont
 
     @Override
     protected void onDestroy() {
+        if (cachedVod != null) cachedVod.close();
         clearObservers();
         detachPlayerView();
         danmakuController.close();

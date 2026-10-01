@@ -28,6 +28,9 @@ public class VodPlaybackController {
     private final VodFallbackPolicy fallbackPolicy;
     private final VodPreloader preloader;
     private History lastHistory;
+    private long requestVersion;
+    private boolean usingCache;
+    private boolean cacheLookupPending;
 
     public VodPlaybackController(VodPlaybackHost host, VodDataSource dataSource, VodPlaybackState state) {
         this.host = host;
@@ -39,6 +42,8 @@ public class VodPlaybackController {
     }
 
     public void reset() {
+        requestVersion++;
+        usingCache = cacheLookupPending = false;
         preloader.clear();
         state.reset();
     }
@@ -188,8 +193,7 @@ public class VodPlaybackController {
     private void playEpisode(Episode item) {
         Result result = preloader.consume(item);
         host.stopPlaybackForRefresh();
-        if (result == null) requestSelectedEpisode();
-        else applyPlaybackResult(result, VodPlayRequest.create(host.getVodKey(), state.getFlag(), item));
+        requestPlayer(state.getFlag(), item, result, true);
     }
 
     public void selectQuality(Result result) {
@@ -202,7 +206,7 @@ public class VodPlaybackController {
     }
 
     public void selectParse(Parse item) {
-        if (host.getOfflinePlayback() != null || item.isDanmaku()) {
+        if (host.getOfflinePlayback() != null || usingCache || host.isCachedPlayback() || item.isDanmaku()) {
             host.searchDanmaku(item);
             return;
         }
@@ -248,9 +252,12 @@ public class VodPlaybackController {
     }
 
     public void playbackError(String msg) {
+        boolean cached = usingCache || host.isCachedPlayback();
         preloader.clear();
         host.resetPlaybackForError(msg);
-        if (host.getOfflinePlayback() == null) fallbackPolicy.playbackError();
+        if (cached && host.getOfflinePlayback() == null && state.hasEpisode()) {
+            requestPlayer(state.getFlag(), state.getEpisode(), null, false);
+        } else if (host.getOfflinePlayback() == null) fallbackPolicy.playbackError();
     }
 
     public void playbackEnded() {
@@ -430,6 +437,12 @@ public class VodPlaybackController {
     }
 
     private void requestPlayer(Flag flag, Episode episode) {
+        requestPlayer(flag, episode, null, true);
+    }
+
+    private void requestPlayer(Flag flag, Episode episode, Result preloaded, boolean preferCache) {
+        long version = ++requestVersion;
+        usingCache = cacheLookupPending = false;
         historyPolicy.updateEpisode(state.getHistory(), flag, episode);
         VodPlayRequest request = VodPlayRequest.create(host.getVodKey(), flag, episode);
         state.setPendingRequest(request);
@@ -440,8 +453,33 @@ public class VodPlaybackController {
             host.renderUseParse(false);
             host.renderQualityVisible(false);
             host.startOfflinePlayback(episode, startPositionMs(), state.getPlaybackMetadata());
-        } else dataSource.playerContent(request);
-        host.onPlaybackRequested();
+            host.onPlaybackRequested();
+        } else {
+            host.onPlaybackRequested();
+            java.util.function.Consumer<Boolean> ready = cached -> {
+                if (host.isHostFinishing() || version != requestVersion) return;
+                cacheLookupPending = false;
+                usingCache = cached;
+                if (cached) {
+                    preloader.clear();
+                    state.setPendingRequest(null);
+                    state.setPlayingRequest(request);
+                    state.setQuality(Result.empty());
+                    state.setUseParse(false);
+                    host.renderUseParse(false);
+                    host.renderQuality(Result.empty(), false);
+                } else {
+                    state.setPendingRequest(request);
+                    if (preloaded != null) applyPlaybackResult(preloaded, request);
+                    else dataSource.playerContent(request);
+                }
+            };
+            if (preferCache) {
+                cacheLookupPending = true;
+                host.tryCachedPlayback(state.getHistory().copy(), startPositionMs(), state.getPlaybackMetadata(),
+                        () -> version == requestVersion && !host.isHostFinishing(), ready);
+            } else ready.accept(false);
+        }
     }
 
     private Episode findEpisode(VodPlayRequest request) {
@@ -488,7 +526,7 @@ public class VodPlaybackController {
     private boolean cannotApply(PlaybackResult<VodPlayRequest> playback) {
         VodPlayRequest pending = state.getPendingRequest();
         VodPlayRequest request = playback.request();
-        if (host.isHostFinishing() || pending == null || request == null) return true;
+        if (cacheLookupPending || host.isHostFinishing() || pending == null || request == null) return true;
         return !pending.matches(request) || findEpisode(request) == null || !request.accepts(playback.result());
     }
 }

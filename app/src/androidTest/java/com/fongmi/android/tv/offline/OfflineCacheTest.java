@@ -614,7 +614,7 @@ public class OfflineCacheTest {
         Download retained = waitState(second.id, Download.STATE_COMPLETED);
         CountDownLatch duplicate = new CountDownLatch(1);
         main(() -> cache.add(first, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, message -> {
-            assertEquals(R.string.offline_exists, message);
+            assertEquals(R.string.offline_already_cached, message);
             duplicate.countDown();
         }));
         assertTrue(duplicate.await(5, TimeUnit.SECONDS));
@@ -687,6 +687,311 @@ public class OfflineCacheTest {
         assertNull(cache.find(video.id));
     }
 
+    @Test
+    public void extensionlessHlsIsDetectedAndDownloadsSegments() throws Exception {
+        OfflineVideo video = video("a/hls/getM3u8", "alpha");
+        add(video);
+        Download download = waitState(video.id, Download.STATE_COMPLETED);
+        assertEquals("application/x-mpegURL", download.request.mimeType);
+        server.blocked = true;
+        playOffline(download, true);
+    }
+
+    @Test
+    public void expiredHtmlWithHttp200IsRejectedBeforeAddingTask() throws Exception {
+        OfflineVideo video = video("a/expired.m3u8", "alpha");
+        CountDownLatch prepared = new CountDownLatch(1);
+        AtomicInteger message = new AtomicInteger();
+        main(() -> cache.add(video, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, result -> {
+            if (result != R.string.offline_preparing) { message.set(result); prepared.countDown(); }
+        }));
+        assertTrue(prepared.await(50, TimeUnit.SECONDS));
+        assertEquals(R.string.offline_invalid_content, message.get());
+        assertNull(cache.find(video.id));
+    }
+
+    @Test
+    public void unplayedEpisodeResolvesAndKeepsOriginalHistoryIdentity() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        main(() -> OfflineIntegration.cacheEpisode(screen, history));
+        Download download = waitState(independentId(history), Download.STATE_COMPLETED);
+        OfflineVideo video = OfflineVideo.decode(download.request.data);
+        assertEquals(history.getEpisodeUrl(), com.fongmi.android.tv.bean.History.objectFrom(video.history).getEpisodeUrl());
+        assertEquals(history.getKey(), com.fongmi.android.tv.bean.History.objectFrom(video.history).getKey());
+        assertFalse(video.source.isEmpty());
+        assertEquals("application/x-mpegURL", download.request.mimeType);
+        server.blocked = true;
+        playOffline(download, true);
+    }
+
+    @Test
+    public void bufferingPlayerCanRequestCacheWithoutWaitingForReady() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        main(() -> {
+            com.fongmi.android.tv.player.PlayerManager.Callback callback =
+                    (com.fongmi.android.tv.player.PlayerManager.Callback) java.lang.reflect.Proxy.newProxyInstance(
+                            getClass().getClassLoader(), new Class[]{com.fongmi.android.tv.player.PlayerManager.Callback.class},
+                            (proxy, method, args) -> null);
+            Player buffering = (Player) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                    new Class[]{Player.class}, (proxy, method, args) -> method.getName().equals("getPlaybackState") ? Player.STATE_BUFFERING : null);
+            com.fongmi.android.tv.player.PlayerManager players = new com.fongmi.android.tv.player.PlayerManager(callback) {
+                @Override public Player getPlayer() { return buffering; }
+            };
+            try { OfflineIntegration.cacheCurrent(screen, players, history); }
+            finally { players.release(); }
+        });
+        waitState(independentId(history), Download.STATE_COMPLETED);
+    }
+
+    @Test
+    public void episodeSheetCacheActionDoesNotSelectOrDismissEpisode() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        AtomicInteger clicks = new AtomicInteger();
+        com.fongmi.android.tv.bean.Episode episode = com.fongmi.android.tv.bean.Episode.create("第2集", "https://example.com/episode2");
+        Object[] dialog = new Object[1];
+        main(() -> {
+            try {
+                Class<?> type = Class.forName("com.fongmi.android.tv.ui.dialog.EpisodeListDialog");
+                dialog[0] = type.getMethod("create").invoke(null);
+                type.getMethod("episodes", List.class).invoke(dialog[0], java.util.Collections.singletonList(episode));
+                java.util.function.Consumer<com.fongmi.android.tv.bean.Episode> action = item -> {
+                    assertEquals(episode, item);
+                    clicks.incrementAndGet();
+                };
+                type.getMethod("cache", java.util.function.Consumer.class).invoke(dialog[0], action);
+                type.getMethod("show", androidx.fragment.app.FragmentActivity.class).invoke(dialog[0], screen);
+                ((androidx.fragment.app.FragmentActivity) screen).getSupportFragmentManager().executePendingTransactions();
+            } catch (Exception error) { throw new AssertionError(error); }
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> {
+            androidx.fragment.app.DialogFragment sheet = (androidx.fragment.app.DialogFragment) dialog[0];
+            int id = context.getResources().getIdentifier("episode_cache", "id", context.getPackageName());
+            android.view.View button = sheet.requireDialog().findViewById(id);
+            assertNotNull("Each episode needs a cache action", button);
+            assertTrue(button.performClick());
+            assertEquals(1, clicks.get());
+            assertFalse(episode.isSelected());
+            assertTrue(sheet.requireDialog().isShowing());
+            sheet.dismissNow();
+        });
+    }
+
+    private com.fongmi.android.tv.bean.History independentHistory() {
+        com.fongmi.android.tv.bean.History history = new com.fongmi.android.tv.bean.History();
+        history.setKey("push_agent@@@" + UUID.randomUUID() + "@@@0");
+        history.setCid(0);
+        history.setVodName("未播放缓存测试");
+        history.setVodFlag("直连");
+        history.setVodRemarks("第2集");
+        history.setEpisodeUrl(server.url("comments/hls/getM3u8"));
+        history.setPosition(0);
+        history.setDuration(C.TIME_UNSET);
+        ids.add(independentId(history));
+        return history;
+    }
+
+    private String independentId(com.fongmi.android.tv.bean.History history) {
+        String identity = new org.json.JSONArray().put(history.getKey()).put(history.getVodFlag())
+                .put(history.getEpisodeUrl()).toString();
+        return UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    @Test
+    public void cachePreferenceMatchesExactIdentityAndRejectsMissingFiles() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        OfflineVideo video = new OfflineVideo(UUID.randomUUID().toString(), history.getVodName(), history.getVodRemarks(),
+                history.getVodFlag(), server.url("a/hls/master.m3u8"), null, Map.of("Cookie", "alpha"), history.toString(), "[]");
+        ids.add(video.id);
+        add(video);
+        Download completed = waitState(video.id, Download.STATE_COMPLETED);
+        assertEquals(completed.request.id, cache.completedFor(history).request.id);
+        com.fongmi.android.tv.bean.History other = history.copy();
+        other.setVodFlag("another line");
+        assertNull(cache.completedFor(other));
+        other = history.copy();
+        other.setEpisodeUrl("https://example.com/another-episode");
+        assertNull(cache.completedFor(other));
+        other = history.copy();
+        other.setKey("another@@@show@@@0");
+        assertNull(cache.completedFor(other));
+        java.lang.reflect.Field field = OfflineCache.class.getDeclaredField("cache");
+        field.setAccessible(true);
+        androidx.media3.datasource.cache.SimpleCache storage = (androidx.media3.datasource.cache.SimpleCache) field.get(cache);
+        for (String key : storage.getKeys()) {
+            if (key.startsWith(video.id + ":")) {
+                androidx.media3.datasource.cache.CacheSpan span = storage.getCachedSpans(key).first();
+                assertTrue(span.file.delete());
+                break;
+            }
+        }
+        assertNull("A completed index record alone is insufficient", cache.completedFor(history));
+    }
+
+    @Test
+    public void incompleteEpisodeIsNotChosenAsAnOnlineReplacement() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        OfflineVideo video = new OfflineVideo(UUID.randomUUID().toString(), history.getVodName(), history.getVodRemarks(),
+                history.getVodFlag(), server.url("a/slow.mp4"), null, Map.of("Cookie", "alpha"), history.toString(), "[]");
+        ids.add(video.id);
+        add(video);
+        waitState(video.id, Download.STATE_DOWNLOADING);
+        main(() -> cache.pause(video.id));
+        waitState(video.id, Download.STATE_STOPPED);
+        assertNull(cache.completedFor(history));
+    }
+
+    @Test
+    public void onlinePageCacheSelectionResumesWithoutAnyMediaNetworkRequest() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        OfflineVideo video = new OfflineVideo(UUID.randomUUID().toString(), history.getVodName(), history.getVodRemarks(),
+                history.getVodFlag(), server.url("a/hls/master.m3u8"), null, Map.of("Cookie", "alpha"), history.toString(), "[]");
+        ids.add(video.id);
+        add(video);
+        waitState(video.id, Download.STATE_COMPLETED);
+        int requests = server.requests.get();
+        server.blocked = true;
+        com.fongmi.android.tv.player.PlayerManager[] players = new com.fongmi.android.tv.player.PlayerManager[1];
+        CachedVodPlayback[] cached = new CachedVodPlayback[1];
+        AtomicInteger result = new AtomicInteger();
+        try {
+            main(() -> {
+                com.fongmi.android.tv.player.PlayerManager.Callback callback =
+                        (com.fongmi.android.tv.player.PlayerManager.Callback) java.lang.reflect.Proxy.newProxyInstance(
+                                getClass().getClassLoader(), new Class[]{com.fongmi.android.tv.player.PlayerManager.Callback.class},
+                                (proxy, method, args) -> null);
+                players[0] = new com.fongmi.android.tv.player.PlayerManager(callback);
+                cached[0] = new CachedVodPlayback((androidx.fragment.app.FragmentActivity) screen);
+                cached[0].start(history, players[0], 1300, androidx.media3.common.MediaMetadata.EMPTY,
+                        history.getKey(), () -> true, found -> result.set(found ? 1 : -1));
+            });
+            long end = System.currentTimeMillis() + 20000;
+            AtomicInteger state = new AtomicInteger();
+            do {
+                main(() -> state.set(players[0].getPlayer().getPlaybackState()));
+                if (state.get() == Player.STATE_READY) break;
+                Thread.sleep(100);
+            } while (System.currentTimeMillis() < end);
+            assertEquals(1, result.get());
+            assertEquals(Player.STATE_READY, state.get());
+            main(() -> {
+                assertTrue(players[0].isOffline());
+                assertEquals(history.getKey(), players[0].getPlayer().getCurrentMediaItem().mediaId);
+                assertTrue(players[0].getPlayer().getCurrentPosition() >= 1200);
+                com.fongmi.android.tv.bean.Result source = com.fongmi.android.tv.bean.Result.objectFrom(players[0].getSourceResult());
+                assertEquals(history.getEpisodeUrl(), source.getUrl().v());
+                assertEquals(history.getVodFlag(), source.getFlag());
+            });
+            assertEquals(requests, server.requests.get());
+            assertEquals("push_agent", history.getKey().split("@@@", -1)[0]);
+        } finally {
+            main(() -> {
+                if (cached[0] != null) cached[0].close();
+                if (players[0] != null) players[0].release();
+            });
+        }
+    }
+
+    @Test
+    public void differentQualityIdentitiesCannotDownloadTheSameCompletedEpisodeAgain() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        OfflineVideo original = new OfflineVideo("quality-1080-" + UUID.randomUUID(), history.getVodName(), history.getVodRemarks(),
+                history.getVodFlag(), server.url("a/sample.mp4"), null, Map.of("Cookie", "alpha"), history.toString(), "[]");
+        ids.add(original.id);
+        add(original);
+        waitState(original.id, Download.STATE_COMPLETED);
+        int requests = server.requests.get();
+        server.blocked = true;
+        OfflineVideo duplicate = new OfflineVideo("default-" + UUID.randomUUID(), history.getVodName(), history.getVodRemarks(),
+                history.getVodFlag(), server.url("a/expired.m3u8"), null, Map.of("Cookie", "alpha"), history.toString(), "[]");
+        ids.add(duplicate.id);
+        CountDownLatch done = new CountDownLatch(1);
+        AtomicInteger message = new AtomicInteger();
+        main(() -> cache.add(duplicate, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, result -> {
+            if (result != R.string.offline_preparing) { message.set(result); done.countDown(); }
+        }));
+        assertTrue(done.await(10, TimeUnit.SECONDS));
+        assertEquals(R.string.offline_already_cached, message.get());
+        assertEquals(requests, server.requests.get());
+        assertNull(cache.find(duplicate.id));
+        CountDownLatch checked = new CountDownLatch(1);
+        AtomicInteger resolved = new AtomicInteger();
+        main(() -> cache.requestEpisode(history, ready -> resolved.incrementAndGet(), result -> {
+            if (result != R.string.offline_preparing) { message.set(result); checked.countDown(); }
+        }));
+        assertTrue(checked.await(5, TimeUnit.SECONDS));
+        assertEquals(R.string.offline_already_cached, message.get());
+        assertEquals("Existing cache must be found before resolving a source", 0, resolved.get());
+        assertEquals(requests, server.requests.get());
+    }
+
+    @Test
+    public void rapidMixedQualityRequestsShareOnePreparingTask() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        OfflineVideo first = new OfflineVideo(UUID.randomUUID().toString(), history.getVodName(), history.getVodRemarks(),
+                history.getVodFlag(), server.url("a/slow.mp4"), null, Map.of("Cookie", "alpha"), history.toString(), "[]");
+        OfflineVideo duplicate = new OfflineVideo(UUID.randomUUID().toString(), history.getVodName(), history.getVodRemarks(),
+                history.getVodFlag(), server.url("a/slow.mp4"), null, Map.of("Cookie", "alpha"), history.toString(), "[]");
+        ids.add(first.id);
+        ids.add(duplicate.id);
+        CountDownLatch added = new CountDownLatch(1);
+        AtomicInteger second = new AtomicInteger(), firstMessage = new AtomicInteger();
+        main(() -> {
+            cache.add(first, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, message -> {
+                if (message != R.string.offline_preparing) { firstMessage.set(message); added.countDown(); }
+            });
+            cache.add(duplicate, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, second::set);
+        });
+        assertEquals(R.string.offline_exists, second.get());
+        assertTrue(added.await(15, TimeUnit.SECONDS));
+        assertEquals(R.string.offline_added, firstMessage.get());
+        waitState(first.id, Download.STATE_DOWNLOADING);
+        main(() -> cache.pause(first.id));
+        waitState(first.id, Download.STATE_STOPPED);
+        int requests = server.requests.get();
+        main(() -> cache.add(duplicate, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, second::set));
+        assertEquals(R.string.offline_exists, second.get());
+        assertEquals(requests, server.requests.get());
+        assertNull(cache.find(duplicate.id));
+        server.blocked = true;
+        main(() -> {
+            try { cache.continueDownload(cache.find(first.id)); }
+            catch (Exception error) { throw new AssertionError(error); }
+        });
+        waitState(first.id, Download.STATE_FAILED);
+        requests = server.requests.get();
+        main(() -> cache.add(duplicate, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, second::set));
+        assertEquals(R.string.offline_exists, second.get());
+        assertEquals(requests, server.requests.get());
+        assertNull(cache.find(duplicate.id));
+    }
+
+    @Test
+    public void sourceAdmissionIsSharedAndReleasedAfterPreparationFailure() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        java.util.concurrent.atomic.AtomicReference<OfflineCache.Callback> owner = new java.util.concurrent.atomic.AtomicReference<>();
+        CountDownLatch first = new CountDownLatch(1);
+        AtomicInteger admitted = new AtomicInteger(), duplicateMessage = new AtomicInteger();
+        main(() -> {
+            cache.requestEpisode(history, ready -> { admitted.incrementAndGet(); owner.set(ready); first.countDown(); }, message -> {});
+            cache.requestEpisode(history, ready -> admitted.incrementAndGet(), duplicateMessage::set);
+        });
+        assertTrue(first.await(5, TimeUnit.SECONDS));
+        assertEquals(1, admitted.get());
+        assertEquals(R.string.offline_preparing, duplicateMessage.get());
+        CountDownLatch retried = new CountDownLatch(1);
+        main(() -> {
+            owner.get().complete(R.string.offline_prepare_error);
+            cache.requestEpisode(history, ready -> {
+                admitted.incrementAndGet();
+                ready.complete(R.string.offline_unsupported);
+                retried.countDown();
+            }, message -> {});
+        });
+        assertTrue(retried.await(5, TimeUnit.SECONDS));
+        assertEquals(2, admitted.get());
+    }
+
     private static final class FixtureServer implements AutoCloseable {
         final ServerSocket server = new ServerSocket(0);
         final ExecutorService workers = Executors.newCachedThreadPool();
@@ -738,7 +1043,14 @@ public class OfflineCacheTest {
                     output.write("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
                     return;
                 }
+                if (path.equals("/a/expired.m3u8")) {
+                    byte[] body = "<pre>链接失效了，请重新获取</pre>".getBytes(StandardCharsets.UTF_8);
+                    output.write(("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+                    output.write(body);
+                    return;
+                }
                 String file = path.substring(path.indexOf('/', 1) + 1);
+                if (file.equals("hls/getM3u8")) file = "hls/master.m3u8";
                 boolean slow = file.equals("slow.mp4");
                 byte[] data;
                 try (InputStream asset = assets.getAssets().open("offline/" + (slow ? "sample.mp4" : file))) {
