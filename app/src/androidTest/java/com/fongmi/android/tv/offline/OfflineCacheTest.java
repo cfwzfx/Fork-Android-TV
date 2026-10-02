@@ -331,6 +331,164 @@ public class OfflineCacheTest {
     @Test public void syncedHlsKeepsTrackSelectionAndAllSegments() throws Exception { syncRoundTrip("a/hls/master.m3u8"); }
     @Test public void syncedDashKeepsTrackSelectionAndAllSegments() throws Exception { syncRoundTrip("a/dash/manifest.mpd"); }
 
+    private void orphanSpan(String key, byte[] data) throws Exception {
+        var hole = cache.storage().startReadWriteNonBlocking(key, 0, data.length);
+        assertNotNull(hole);
+        try {
+            File file = cache.storage().startFile(key, 0, data.length);
+            java.nio.file.Files.write(file.toPath(), data);
+            cache.storage().commitFile(file, data.length);
+        } finally { cache.storage().releaseHoleSpan(hole); }
+    }
+
+    @Test public void manualCleanupRemovesOnlyOrphansAndTemporaryFiles() throws Exception {
+        OfflineVideo healthy = video("a/sample.mp4", "alpha"); add(healthy);
+        Download saved = waitState(healthy.id, Download.STATE_COMPLETED);
+        String key = java.util.UUID.randomUUID() + ":https://orphan.test/media";
+        orphanSpan(key, new byte[80]);
+        File dir = new File(context.getFilesDir(), "danmaku_saved"); dir.mkdirs();
+        File temp = File.createTempFile("sync-", ".tmp", dir);
+        File shared = File.createTempFile("shared-", ".xml", dir);
+        File unrelated = File.createTempFile("other-", ".tmp", dir);
+        File subtitle = File.createTempFile("offline-subtitle-", ".tmp", context.getCacheDir());
+        try {
+            java.nio.file.Files.write(temp.toPath(), new byte[31]);
+            java.nio.file.Files.write(subtitle.toPath(), new byte[19]);
+            java.nio.file.Files.write(shared.toPath(), new byte[10]);
+            OfflineCacheMaintenance tool = new OfflineCacheMaintenance(context, cache);
+            OfflineCacheMaintenance.Report report = tool.scan();
+            assertTrue(cache.storage().getCachedSpans(key).size() > 0);
+            assertTrue(temp.exists()); assertTrue(subtitle.exists());
+            assertTrue(report.bytes >= 130);
+            tool.clean(report);
+            assertTrue(cache.storage().getCachedSpans(key).isEmpty());
+            assertFalse(temp.exists()); assertFalse(subtitle.exists());
+            assertTrue("Keep shared saved comments", shared.exists()); assertTrue(unrelated.exists());
+            assertNotNull(cache.find(healthy.id)); cache.verify(saved);
+            OfflineCacheMaintenance.Report empty = tool.scan();
+            assertEquals(0L, empty.bytes);
+        } finally {
+            cache.storage().removeResource(key); temp.delete(); shared.delete(); unrelated.delete(); subtitle.delete();
+        }
+    }
+
+    @Test public void cleanupKeepsPausedAndFailedTaskDataAndRefusesDownloading() throws Exception {
+        OfflineVideo video = video("a/slow.mp4", "alpha"); add(video);
+        waitState(video.id, Download.STATE_DOWNLOADING);
+        OfflineCacheMaintenance tool = new OfflineCacheMaintenance(context, cache);
+        try { tool.scan(); fail("Do not inspect while a download is writing"); }
+        catch (OfflineCacheMaintenance.Busy expected) {}
+        main(() -> cache.pause(video.id)); Download paused = waitState(video.id, Download.STATE_STOPPED);
+        String key = video.id + ":https://orphan.test/paused";
+        orphanSpan(key, new byte[80]);
+        var report = tool.scan(); tool.clean(report);
+        assertFalse(cache.storage().getCachedSpans(key).isEmpty());
+        Download failed = new Download(paused.request, Download.STATE_FAILED, paused.startTimeMs, paused.updateTimeMs,
+                paused.contentLength, 0, Download.FAILURE_REASON_UNKNOWN);
+        ((androidx.media3.exoplayer.offline.WritableDownloadIndex) cache.manager().getDownloadIndex()).putDownload(failed);
+        report = tool.scan(); tool.clean(report);
+        assertFalse("Failed tasks still own their retryable data", cache.storage().getCachedSpans(key).isEmpty());
+        assertNotNull(cache.find(video.id));
+    }
+
+    @Test public void cleanupWaitsForSubtitleSaveInsteadOfRemovingItsTemporaryFile() throws Exception {
+        OfflineVideo video = video("a/sample.mp4", "alpha"); add(video);
+        Download saved = waitState(video.id, Download.STATE_COMPLETED);
+        var workers = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var saving = workers.submit(() -> OfflineSubtitles.save(context, cache, video,
+                    com.fongmi.android.tv.bean.Sub.from("Slow.vtt", server.url("a/slow-subtitle.vtt"), "en", androidx.media3.common.MimeTypes.TEXT_VTT), true));
+            long deadline = System.currentTimeMillis() + 5000;
+            File active = null;
+            do {
+                File[] files = context.getCacheDir().listFiles();
+                if (files != null) for (File file : files) if (file.getName().startsWith("offline-subtitle-") && file.getName().endsWith(".tmp")) active = file;
+                if (active != null) break; Thread.sleep(50);
+            } while (System.currentTimeMillis() < deadline);
+            assertNotNull("The real subtitle saver is writing a temporary file", active);
+            var checking = workers.submit(() -> new OfflineCacheMaintenance(context, cache).scan());
+            Thread.sleep(200);
+            assertFalse("Do not classify an active subtitle as a dead file", checking.isDone());
+            assertTrue(active.exists()); saving.get(15, TimeUnit.SECONDS);
+            var report = checking.get(10, TimeUnit.SECONDS);
+            assertFalse("The subtitle saver finished and removed its own temporary file", active.exists()); cache.verify(saved);
+        } finally { workers.shutdownNow(); }
+    }
+
+    private Activity waitForSettingsWindow() throws Exception {
+        var visible = new java.util.concurrent.atomic.AtomicReference<Activity>();
+        long deadline = System.currentTimeMillis() + 10000;
+        do {
+            main(() -> {
+                for (Activity activity : androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                        .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)) {
+                    if (activity instanceof OfflineCacheSettingsActivity && activity.hasWindowFocus()) visible.set(activity);
+                }
+            });
+            if (visible.get() != null) break; Thread.sleep(100);
+        } while (System.currentTimeMillis() < deadline);
+        assertNotNull("Wait for the current resumed settings instance after any orientation recreation", visible.get());
+        return visible.get();
+    }
+
+    @Test public void settingsCleanupIsManualAndRequiresConfirmation() throws Exception {
+        String key = java.util.UUID.randomUUID() + ":https://orphan.test/settings";
+        orphanSpan(key, new byte[80]);
+        InstrumentationRegistry.getInstrumentation().startActivitySync(new Intent(context,
+                OfflineCacheSettingsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        Activity page = waitForSettingsWindow();
+        try {
+            main(() -> assertEquals(context.getString(R.string.offline_cleanup_help),
+                    ((android.widget.TextView) page.findViewById(R.id.offline_cleanup_status)).getText().toString()));
+            assertFalse("Opening settings must not clean automatically", cache.storage().getCachedSpans(key).isEmpty());
+            var automation = InstrumentationRegistry.getInstrumentation().getUiAutomation();
+            var info = automation.getServiceInfo();
+            info.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+            automation.setServiceInfo(info);
+            main(() -> page.findViewById(R.id.offline_cleanup).performClick());
+            boolean confirmed = false;
+            long deadline = System.currentTimeMillis() + 10000;
+            do {
+                for (var window : automation.getWindows()) {
+                    var root = window.getRoot(); if (root == null) continue;
+                    for (var node : root.findAccessibilityNodeInfosByText(context.getString(R.string.offline_cleanup_action))) {
+                        if (!node.isClickable() || !context.getString(R.string.offline_cleanup_action).contentEquals(node.getText())) continue;
+                        assertFalse("Checking must leave files until confirmation", cache.storage().getCachedSpans(key).isEmpty());
+                        confirmed = node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                        if (confirmed) break;
+                    }
+                    if (confirmed) break;
+                }
+                if (!confirmed) Thread.sleep(100);
+            } while (!confirmed && System.currentTimeMillis() < deadline);
+            assertTrue("The confirmation offers cleanup", confirmed);
+            deadline = System.currentTimeMillis() + 5000;
+            while (!cache.storage().getCachedSpans(key).isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(100);
+            assertTrue(cache.storage().getCachedSpans(key).isEmpty());
+        } finally { main(page::finish); cache.storage().removeResource(key); }
+    }
+
+    @Test public void manualCleanupRefusesAnActiveImportAndRechecksOwnership() throws Exception {
+        OfflineVideo original = transferable("a/sample.mp4"); add(original);
+        Download saved = waitState(original.id, Download.STATE_COMPLETED);
+        var transfer = new OfflineCacheTransfer(context, cache);
+        var snapshot = transfer.export(original.id, () -> false);
+        removeAndWait(original.id);
+        String key = original.id + ":" + original.url;
+        orphanSpan(key, new byte[80]);
+        OfflineCacheMaintenance tool = new OfflineCacheMaintenance(context, cache); OfflineCacheMaintenance.Report report = tool.scan();
+        try (var active = transfer.prepare(snapshot.manifest)) {
+            assertNotNull(active);
+            try { tool.clean(report); fail("Do not clean during an import"); }
+            catch (OfflineCacheMaintenance.Busy expected) {}
+        }
+        // A task registered after the scan must be protected when confirmation arrives.
+        orphanSpan(key, new byte[80]);
+        ((androidx.media3.exoplayer.offline.WritableDownloadIndex) cache.manager().getDownloadIndex()).putDownload(saved);
+        tool.clean(report);
+        assertFalse("Recheck ownership rather than deleting a stale scan", cache.storage().getCachedSpans(key).isEmpty());
+    }
+
     @Test public void brokenSyncRollsBackAndAllowsRetry() throws Exception {
         OfflineVideo video = transferable("a/hls/master.m3u8");
         add(video);
@@ -539,6 +697,7 @@ public class OfflineCacheTest {
     @Before
     public void setup() throws Exception {
         context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        wakeTestScreen();
         context.getSharedPreferences("offline_playback", 0).edit().clear().commit();
         context.getSharedPreferences("offline_ui", 0).edit().clear().commit();
         server = new FixtureServer(InstrumentationRegistry.getInstrumentation().getContext());
@@ -754,13 +913,20 @@ public class OfflineCacheTest {
                 | android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
         automation.setServiceInfo(serviceInfo);
         boolean menuClicked = false;
-        for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
-            var root = window.getRoot();
-            if (root == null) continue;
-            for (var node : root.findAccessibilityNodeInfosByText(context.getString(R.string.offline_delete)))
-                if (node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)) { menuClicked = true; break; }
-            if (menuClicked) break;
-        }
+        long menuDeadline = System.currentTimeMillis() + 5000;
+        do {
+            for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+                var root = window.getRoot(); if (root == null) continue;
+                for (var node : root.findAccessibilityNodeInfosByText(context.getString(R.string.offline_delete))) {
+                    menuClicked = node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                    if (!menuClicked && node.getParent() != null)
+                        menuClicked = node.getParent().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                    if (menuClicked) break;
+                }
+                if (menuClicked) break;
+            }
+            if (!menuClicked) Thread.sleep(100);
+        } while (!menuClicked && System.currentTimeMillis() < menuDeadline);
         assertTrue("More actions must retain deletion", menuClicked);
         automation.waitForIdle(500, 3000);
         boolean clicked = false;
@@ -1130,6 +1296,223 @@ public class OfflineCacheTest {
             fail("MP4's declared media box extends beyond the incorrectly recorded cached EOF");
         } catch (java.io.IOException expected) {}
         assertEquals(requests, server.requests.get());
+    }
+
+    private String shellOutput(String command) throws Exception {
+        try (var input = new android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                InstrumentationRegistry.getInstrumentation().getUiAutomation().executeShellCommand(command))) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private void wakeTestScreen() throws Exception {
+        shellOutput("input keyevent 224");
+        var power = (android.os.PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        var keyguard = (android.app.KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        long deadline = System.currentTimeMillis() + 5000;
+        while (!power.isInteractive() && System.currentTimeMillis() < deadline) Thread.sleep(50);
+        do {
+            shellOutput("wm dismiss-keyguard");
+            if (!keyguard.isKeyguardLocked()) return;
+            Thread.sleep(100);
+        } while (System.currentTimeMillis() < deadline);
+        assertFalse("UI tests need an unlocked screen after the screen-off test", keyguard.isKeyguardLocked());
+    }
+
+    private boolean downloadCpuLockHeld() throws Exception {
+        // dumpsys also includes released locks in its history; inspect only active locks.
+        for (String line : shellOutput("dumpsys power").split("\\n")) {
+            if (line.trim().startsWith("PARTIAL_WAKE_LOCK") && line.contains("'Android-TV:OfflineCache'")) return true;
+        }
+        return false;
+    }
+
+    @Test public void screenOffDownloadHoldsCpuLockAndPauseReleasesIt() throws Exception {
+        OfflineVideo video = video("a/slow.mp4", "alpha"); add(video);
+        waitState(video.id, Download.STATE_DOWNLOADING);
+        try {
+            shellOutput("input keyevent 223");
+            long deadline = System.currentTimeMillis() + 3000;
+            boolean held;
+            do {
+                held = downloadCpuLockHeld();
+                if (held) break; Thread.sleep(100);
+            } while (System.currentTimeMillis() < deadline);
+            assertTrue("An active screen-off download needs its own bounded CPU wake lock", held);
+            assertFalse(((android.os.PowerManager) context.getSystemService(Context.POWER_SERVICE)).isInteractive());
+            main(() -> cache.pause(video.id)); waitState(video.id, Download.STATE_STOPPED);
+            deadline = System.currentTimeMillis() + 3000;
+            do {
+                held = downloadCpuLockHeld();
+                if (!held) break; Thread.sleep(100);
+            } while (System.currentTimeMillis() < deadline);
+            assertFalse("A paused download must not keep the CPU awake", held);
+            main(() -> cache.continueDownload(cacheFind(video.id)));
+            waitState(video.id, Download.STATE_COMPLETED);
+            deadline = System.currentTimeMillis() + 3000;
+            do {
+                held = downloadCpuLockHeld();
+                if (!held) break; Thread.sleep(100);
+            } while (System.currentTimeMillis() < deadline);
+            assertFalse("Completed downloads must release their wake lock", held);
+        } finally { wakeTestScreen(); }
+    }
+
+    private Download cacheFind(String id) {
+        try { return cache.find(id); } catch (java.io.IOException error) { throw new RuntimeException(error); }
+    }
+
+    @Test public void concurrentCacheAndOnlineResolutionKeepEachEpisodeMedia() throws Exception {
+        var config = com.fongmi.android.tv.api.config.VodConfig.get();
+        var sitesField = config.getClass().getDeclaredField("sites"); sitesField.setAccessible(true);
+        Object previousSites = sitesField.get(config);
+        CountDownLatch firstEntered = new CountDownLatch(1), anotherEntered = new CountDownLatch(1);
+        var plugin = new com.github.catvod.crawler.Spider() {
+            volatile String selected;
+            @Override public String playerContent(String flag, String id, List<String> flags) throws Exception {
+                selected = id;
+                if (id.equals("10")) { firstEntered.countDown(); anotherEntered.await(800, TimeUnit.MILLISECONDS); }
+                else anotherEntered.countDown();
+                Thread.sleep(100);
+                return "{\"parse\":0,\"url\":\"" + server.url("comments/episode-" + selected + ".mp4") + "\"}";
+            }
+        };
+        var site = new com.fongmi.android.tv.bean.Site() {
+            @Override public String getKey() { return "race-source"; }
+            @Override public Integer getType() { return 3; }
+            @Override public com.fongmi.android.tv.bean.Site recent() { return this; }
+            @Override public com.github.catvod.crawler.Spider spider() { return plugin; }
+        };
+        List<com.fongmi.android.tv.bean.History> episodes = new ArrayList<>();
+        for (int number : new int[]{10, 11, 12}) {
+            var history = independentHistory(); history.setKey("race-source@@@race-show@@@" + history.getCid());
+            history.setVodRemarks("第" + number + "集"); history.setEpisodeUrl(Integer.toString(number));
+            episodes.add(history); ids.add(independentId(history)); histories.add(history);
+        }
+        var workers = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            sitesField.set(config, new ArrayList<>(java.util.Collections.singletonList(site)));
+            CountDownLatch added = new CountDownLatch(3); AtomicInteger errors = new AtomicInteger();
+            main(() -> OfflineEpisodeResolver.resolve(context, episodes.get(0), message -> {
+                if (message != R.string.offline_preparing) { if (message != R.string.offline_added) errors.incrementAndGet(); added.countDown(); }
+            }));
+            assertTrue(firstEntered.await(5, TimeUnit.SECONDS));
+            var online = workers.submit(() -> com.fongmi.android.tv.api.SiteApi.playerContent("race-source", "直连", "20"));
+            main(() -> {
+                for (var history : episodes.subList(1, 3)) OfflineEpisodeResolver.resolve(context, history, message -> {
+                    if (message != R.string.offline_preparing) { if (message != R.string.offline_added) errors.incrementAndGet(); added.countDown(); }
+                });
+            });
+            assertTrue(added.await(30, TimeUnit.SECONDS)); assertEquals(0, errors.get());
+            assertEquals(server.url("comments/episode-20.mp4"), online.get(5, TimeUnit.SECONDS).getUrl().v());
+            for (int i = 0; i < 3; i++) {
+                Download saved = waitState(independentId(episodes.get(i)), Download.STATE_COMPLETED);
+                assertEquals("An episode's label must describe its actual downloaded media", server.url("comments/episode-" + (10 + i) + ".mp4"), saved.request.uri.toString());
+                String key = saved.request.id + ":" + saved.request.uri;
+                byte[] bytes = java.nio.file.Files.readAllBytes(cache.storage().getCachedSpans(key).first().file.toPath());
+                assertEquals("Actual media differs per episode", 10 + i, java.nio.ByteBuffer.wrap(bytes, bytes.length - 4, 4).getInt());
+            }
+        } finally { workers.shutdownNow(); sitesField.set(config, previousSites); }
+    }
+
+    @Test public void cacheSettingsApplyImmediatelyAndPersistAfterReopening() throws Exception {
+        var preferences = com.github.catvod.utils.Prefers.getPrefers();
+        Object previous = preferences.getAll().get("offline_parallel_downloads");
+        Activity settings = null;
+        try {
+            int button = context.getResources().getIdentifier("offline_settings_button", "id", context.getPackageName());
+            assertTrue("The cache page needs an entry to its settings page", button != 0);
+            var monitor = new android.app.Instrumentation.ActivityMonitor("com.fongmi.android.tv.offline.OfflineCacheSettingsActivity", null, false);
+            InstrumentationRegistry.getInstrumentation().addMonitor(monitor);
+            try {
+                main(() -> screen.findViewById(button).performClick());
+                settings = monitor.waitForActivityWithTimeout(5000); assertNotNull(settings);
+            } finally { InstrumentationRegistry.getInstrumentation().removeMonitor(monitor); }
+            settings = waitForSettingsWindow();
+            Activity page = settings;
+            int selector = context.getResources().getIdentifier("offline_parallel", "id", context.getPackageName());
+            main(() -> page.findViewById(selector).performClick());
+            var automation = InstrumentationRegistry.getInstrumentation().getUiAutomation();
+            var serviceInfo = automation.getServiceInfo();
+            serviceInfo.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+            automation.setServiceInfo(serviceInfo);
+            automation.waitForIdle(500, 3000);
+            boolean clicked = false;
+            long choiceDeadline = System.currentTimeMillis() + 5000;
+            do {
+                for (var window : automation.getWindows()) {
+                    var root = window.getRoot(); if (root == null) continue;
+                    for (var node : root.findAccessibilityNodeInfosByText(context.getString(R.string.offline_parallel_value, 4))) {
+                        android.graphics.Rect bounds = new android.graphics.Rect(); node.getBoundsInScreen(bounds);
+                        if (bounds.isEmpty()) continue;
+                        long time = android.os.SystemClock.uptimeMillis();
+                        var down = android.view.MotionEvent.obtain(time, time, android.view.MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY(), 0);
+                        var up = android.view.MotionEvent.obtain(time, time + 50, android.view.MotionEvent.ACTION_UP, bounds.centerX(), bounds.centerY(), 0);
+                        try { clicked = automation.injectInputEvent(down, true) && automation.injectInputEvent(up, true); }
+                        finally { down.recycle(); up.recycle(); }
+                        if (clicked) break;
+                    }
+                    if (clicked) break;
+                }
+                if (!clicked) Thread.sleep(100);
+            } while (!clicked && System.currentTimeMillis() < choiceDeadline);
+            assertTrue("The selected limit is editable", clicked);
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            main(() -> cache.manager().pauseDownloads());
+            List<OfflineVideo> videos = new ArrayList<>();
+            for (int i = 0; i < 4; i++) { OfflineVideo video = video("a/slow.mp4", "alpha"); videos.add(video); add(video); waitState(video.id, Download.STATE_QUEUED); }
+            main(() -> cache.manager().resumeDownloads());
+            long deadline = System.currentTimeMillis() + 4000; int running;
+            do {
+                running = 0; for (var video : videos) if (cache.find(video.id).state == Download.STATE_DOWNLOADING) running++;
+                if (running == 4) break; Thread.sleep(50);
+            } while (System.currentTimeMillis() < deadline);
+            assertEquals("The running manager must use the setting without restarting the app", 4, running);
+            main(page::finish);
+            settings = InstrumentationRegistry.getInstrumentation().startActivitySync(new Intent(context,
+                    Class.forName("com.fongmi.android.tv.offline.OfflineCacheSettingsActivity")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            Activity reopened = settings;
+            int valueId = context.getResources().getIdentifier("offline_parallel_value", "id", context.getPackageName());
+            main(() -> assertEquals(context.getString(R.string.offline_parallel_value, 4), ((android.widget.TextView) reopened.findViewById(valueId)).getText().toString()));
+        } finally {
+            if (settings != null) { Activity page = settings; main(page::finish); }
+            var editor = preferences.edit(); if (previous instanceof Integer value) editor.putInt("offline_parallel_downloads", value); else editor.remove("offline_parallel_downloads"); editor.commit();
+            main(() -> cache.manager().resumeDownloads());
+        }
+    }
+
+    @Test public void differentEpisodesCannotSilentlyReuseTheSameResolvedAddress() throws Exception {
+        OfflineVideo first = transferable("a/sample.mp4"); add(first); waitState(first.id, Download.STATE_COMPLETED);
+        var history = OfflineHistory.original(first); history.setVodRemarks("第3集"); history.setEpisodeUrl("https://episode.test/third");
+        OfflineVideo another = new OfflineVideo(OfflineVideo.identity(history), first.title, "第3集", first.line,
+                first.url, first.mimeType, first.headers, history.toString(), first.danmaku, first.source);
+        ids.add(another.id); AtomicInteger message = new AtomicInteger(); CountDownLatch done = new CountDownLatch(1);
+        main(() -> cache.add(another, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, result -> {
+            if (result != R.string.offline_preparing) { message.set(result); done.countDown(); }
+        }));
+        assertTrue(done.await(10, TimeUnit.SECONDS)); assertEquals(R.string.offline_episode_conflict, message.get());
+        assertNull("Do not create a correctly labeled task with another episode's media", cache.find(another.id));
+    }
+
+    @Test public void defaultDownloadLimitStartsThreeTasksAndQueuesTheFourth() throws Exception {
+        main(() -> cache.manager().pauseDownloads());
+        List<OfflineVideo> videos = new ArrayList<>();
+        try {
+            for (int i = 0; i < 4; i++) { OfflineVideo video = video("a/slow.mp4", "alpha"); videos.add(video); add(video); waitState(video.id, Download.STATE_QUEUED); }
+            main(() -> cache.manager().resumeDownloads());
+            long deadline = System.currentTimeMillis() + 4000; int downloading;
+            do {
+                downloading = 0;
+                for (OfflineVideo video : videos) if (cache.find(video.id).state == Download.STATE_DOWNLOADING) downloading++;
+                if (downloading == 3) break;
+                Thread.sleep(50);
+            } while (System.currentTimeMillis() < deadline);
+            assertEquals("Default concurrency must start three complete episode downloads", 3, downloading);
+            assertEquals(1, videos.stream().filter(video -> {
+                try { return cache.find(video.id).state == Download.STATE_QUEUED; }
+                catch (Exception error) { throw new RuntimeException(error); }
+            }).count());
+        } finally { main(() -> cache.manager().resumeDownloads()); }
     }
 
     @Test public void wrongCloudRangeCannotCompleteTheDownload() throws Exception {
@@ -1763,13 +2146,21 @@ public class OfflineCacheTest {
                 }
                 String file = path.substring(path.indexOf('/', 1) + 1);
                 if (file.equals("hls/getM3u8")) file = "hls/master.m3u8";
-                boolean slow = file.equals("slow.mp4"), capped = file.equals("capped.mp4") || file.equals("badrange.mp4");
+                boolean slowSubtitle = file.equals("slow-subtitle.vtt");
+                boolean slow = file.equals("slow.mp4") || slowSubtitle, capped = file.equals("capped.mp4") || file.equals("badrange.mp4");
+                boolean numbered = file.matches("episode-[0-9]+\\.mp4");
                 byte[] data;
-                try (InputStream asset = assets.getAssets().open("offline/" + (slow || capped ? "sample.mp4" : file))) {
+                try (InputStream asset = assets.getAssets().open("offline/" + (slowSubtitle ? "hls/en.vtt" : slow || capped || numbered ? "sample.mp4" : file))) {
                     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
                     byte[] chunk = new byte[8192];
                     for (int count; (count = asset.read(chunk)) >= 0;) buffer.write(chunk, 0, count);
-                    if (slow) {
+                    if (numbered) {
+                        buffer.write(java.nio.ByteBuffer.allocate(12).putInt(12).putInt(0x66726565).putInt(Integer.parseInt(file.substring(8, file.length() - 4))).array());
+                    }
+                    if (slowSubtitle) {
+                        byte[] padding = new byte[2097152]; java.util.Arrays.fill(padding, (byte) ' '); buffer.write(padding);
+                    }
+                    if (slow && !slowSubtitle) {
                         // A valid ISO BMFF free box makes the download long enough to pause.
                         buffer.write(new byte[]{0, 32, 0, 0, 'f', 'r', 'e', 'e'});
                         buffer.write(new byte[2097152 - 8]);

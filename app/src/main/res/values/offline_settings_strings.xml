@@ -1,0 +1,17 @@
+<resources>
+    <string name="offline_settings">Cache settings</string>
+    <string name="offline_parallel_downloads">Concurrent downloads</string>
+    <string name="offline_parallel_value">%1$d tasks</string>
+    <string name="offline_parallel_help">Changes apply immediately. Additional episodes wait in the queue.</string>
+    <string name="offline_episode_conflict">The source returned the same media address for different episodes. Caching was stopped to avoid saving the wrong episode.</string>
+    <string name="offline_cleanup">Check leftover cache data</string>
+    <string name="offline_cleanup_help">Check manually for files left by interrupted transfers. Existing tasks and saved comments are kept.</string>
+    <string name="offline_cleanup_scanning">Checking…</string>
+    <string name="offline_cleanup_found">Found %1$d files (%2$s). Clean them?</string>
+    <string name="offline_cleanup_empty">No leftover data found.</string>
+    <string name="offline_cleanup_action">Clean</string>
+    <string name="offline_cleanup_done">Released %1$s.</string>
+    <string name="offline_cleanup_busy">Pause downloads and wait for cache preparation or receiving to finish, then try again.</string>
+    <string name="offline_cleanup_error">Could not complete the check or cleanup. Some files may remain; please try again.</string>
+    <string name="offline_settings_entry_title">Video cache</string>
+</resources>

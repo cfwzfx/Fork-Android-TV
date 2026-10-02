@@ -121,6 +121,7 @@ public class SettingFragment extends BaseFragment implements ConfigListener, Sit
         mBinding.cache.setOnClickListener(this::onCache);
         mBinding.backup.setOnClickListener(this::onBackup);
         mBinding.offlineCache.setOnClickListener(v -> com.fongmi.android.tv.offline.OfflineIntegration.open(requireContext()));
+        mBinding.offlineSettings.setOnClickListener(v -> startActivity(new android.content.Intent(requireContext(), com.fongmi.android.tv.offline.OfflineCacheSettingsActivity.class)));
         mBinding.player.setOnClickListener(this::onPlayer);
         mBinding.danmaku.setOnClickListener(this::onDanmaku);
         mBinding.restore.setOnClickListener(this::onRestore);

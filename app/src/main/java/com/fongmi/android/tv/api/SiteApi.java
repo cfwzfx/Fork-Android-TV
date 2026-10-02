@@ -152,14 +152,20 @@ public class SiteApi {
         Site site = VodConfig.get().getSite(key);
         source.stop();
         if (site.getType() == 3) {
-            String playerContent = site.recent().spider().playerContent(flag, id, VodConfig.get().getFlags());
-            SpiderDebug.log("player", playerContent);
-            Result result = Result.fromJson(playerContent);
-            if (result.getFlag().isEmpty()) result.setFlag(flag);
-            result.setUrl(source.fetch(result));
-            result.setHeader(site.getHeader());
-            result.setKey(key);
-            return result;
+            Spider spider = site.spider();
+            // Cached episodes and online playback share stateful source plugins.
+            // Keep the entire synchronous result extraction bound to this request.
+            synchronized (spider) {
+                site.recent();
+                String playerContent = spider.playerContent(flag, id, VodConfig.get().getFlags());
+                SpiderDebug.log("player", playerContent);
+                Result result = Result.fromJson(playerContent);
+                if (result.getFlag().isEmpty()) result.setFlag(flag);
+                result.setUrl(source.fetch(result));
+                result.setHeader(site.getHeader());
+                result.setKey(key);
+                return result;
+            }
         } else if (site.getType() == 4) {
             ArrayMap<String, String> params = new ArrayMap<>();
             params.put("play", id);

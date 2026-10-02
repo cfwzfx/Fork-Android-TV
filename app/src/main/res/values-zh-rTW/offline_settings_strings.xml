@@ -1,0 +1,17 @@
+<resources>
+    <string name="offline_settings">快取設定</string>
+    <string name="offline_parallel_downloads">同時下載數量</string>
+    <string name="offline_parallel_value">%1$d 個</string>
+    <string name="offline_parallel_help">修改立即生效，超過數量的集數會排隊等待。</string>
+    <string name="offline_episode_conflict">影片來源為不同集傳回相同播放位址，已停止快取以避免下載錯集。</string>
+    <string name="offline_cleanup">檢測殘留快取</string>
+    <string name="offline_cleanup_help">手動檢查異常中斷留下的檔案，保留既有任務及已儲存的彈幕。</string>
+    <string name="offline_cleanup_scanning">正在檢測…</string>
+    <string name="offline_cleanup_found">發現 %1$d 個殘留檔案，共 %2$s，是否清理？</string>
+    <string name="offline_cleanup_empty">未發現可清理的殘留資料。</string>
+    <string name="offline_cleanup_action">清理</string>
+    <string name="offline_cleanup_done">已釋放 %1$s。</string>
+    <string name="offline_cleanup_busy">請先暫停下載，並等待快取準備或同步接收結束後重試。</string>
+    <string name="offline_cleanup_error">檢測或清理未完成，可能仍有殘留檔案，請重試。</string>
+    <string name="offline_settings_entry_title">影片快取</string>
+</resources>

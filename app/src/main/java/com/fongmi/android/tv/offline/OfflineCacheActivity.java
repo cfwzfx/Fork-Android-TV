@@ -22,6 +22,7 @@ public final class OfflineCacheActivity extends AppCompatActivity {
         View root = findViewById(R.id.offline_root);
         applyInsets(root);
         findViewById(R.id.offline_back).setOnClickListener(v -> finish());
+        findViewById(R.id.offline_settings_button).setOnClickListener(v -> startActivity(new android.content.Intent(this, OfflineCacheSettingsActivity.class)));
         list = new OfflineCacheList(this, root);
         sync = OfflineSyncEntry.install(this, root);
     }

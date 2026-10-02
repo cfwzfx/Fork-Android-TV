@@ -1,0 +1,17 @@
+<resources>
+    <string name="offline_settings">缓存设置</string>
+    <string name="offline_parallel_downloads">同时下载数量</string>
+    <string name="offline_parallel_value">%1$d 个</string>
+    <string name="offline_parallel_help">修改立即生效，超过数量的集数会排队等待。</string>
+    <string name="offline_episode_conflict">视频源为不同集返回了相同播放地址，已停止缓存以避免串集。</string>
+    <string name="offline_cleanup">检测残留缓存</string>
+    <string name="offline_cleanup_help">手动检查异常中断留下的文件，保留已有任务和已保存的弹幕。</string>
+    <string name="offline_cleanup_scanning">正在检测…</string>
+    <string name="offline_cleanup_found">发现 %1$d 个残留文件，共 %2$s，是否清理？</string>
+    <string name="offline_cleanup_empty">未发现可清理的残留数据。</string>
+    <string name="offline_cleanup_action">清理</string>
+    <string name="offline_cleanup_done">已释放 %1$s。</string>
+    <string name="offline_cleanup_busy">请先暂停下载，并等待缓存准备或同步接收结束后重试。</string>
+    <string name="offline_cleanup_error">检测或清理未完成，可能仍有残留文件，请重试。</string>
+    <string name="offline_settings_entry_title">视频缓存</string>
+</resources>

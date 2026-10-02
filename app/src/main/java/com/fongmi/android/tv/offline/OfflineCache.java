@@ -56,13 +56,16 @@ public final class OfflineCache {
     private final DownloadManager manager;
     private final SharedPreferences errors;
     private final NetworkFactory network;
+    private final SharedPreferences.OnSharedPreferenceChangeListener settingsListener;
     private final Map<String, DownloadHelper> preparing = new HashMap<>();
     private final Set<String> probing = new HashSet<>();
+    private final Map<String, OfflineVideo> resolvedMedia = new HashMap<>();
     private final Map<String, String> inFlightEpisodes = new HashMap<>();
     private final Map<String, Object> admission = new HashMap<>();
     private final Set<String> importing = new HashSet<>();
     private final Map<String, Object> flightTokens = new HashMap<>();
     private final Set<String> submitting = new HashSet<>();
+    private boolean maintenance;
     private final Map<String, Replacement> replacements = new HashMap<>();
     private record Replacement(OfflineVideo video, Object token, Callback callback) {}
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -87,7 +90,12 @@ public final class OfflineCache {
                     new DefaultDownloaderFactory(dataSource(video, false), Runnable::run).createDownloader(request));
         });
         manager.setRequirements(new Requirements(Requirements.NETWORK));
-        manager.setMaxParallelDownloads(2);
+        manager.setMaxParallelDownloads(com.fongmi.android.tv.setting.OfflineSetting.getParallelDownloads());
+        settingsListener = (preferences, key) -> {
+            if (com.fongmi.android.tv.setting.OfflineSetting.PARALLEL_DOWNLOADS.equals(key))
+                handler.post(() -> manager.setMaxParallelDownloads(com.fongmi.android.tv.setting.OfflineSetting.getParallelDownloads()));
+        };
+        com.github.catvod.utils.Prefers.getPrefers().registerOnSharedPreferenceChangeListener(settingsListener);
         manager.addListener(new DownloadManager.Listener() {
             @Override
             public void onDownloadChanged(DownloadManager manager, Download download, Exception exception) {
@@ -130,6 +138,7 @@ public final class OfflineCache {
     /** Called by the transfer worker; reservation shares the normal download admission gate. */
     boolean reserveImport(OfflineVideo video) throws IOException {
         return onMain(() -> {
+            if (maintenance) throw new IOException("Cache maintenance in progress");
             if (admission.containsKey(video.episodeKey()) || inFlightEpisodes.containsKey(video.episodeKey())
                     || existingEpisode(video.episodeKey(), video.id) != null) return false;
             importing.add(video.episodeKey());
@@ -154,6 +163,26 @@ public final class OfflineCache {
         try { return task.get(); }
         catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IOException("Transfer interrupted", error); }
         catch (java.util.concurrent.ExecutionException error) { throw new IOException("Cache unavailable", error.getCause()); }
+    }
+
+    /** Explicit manual operation only; exclude unfinished writers before taking a snapshot. */
+    <T> T maintain(java.util.concurrent.Callable<T> work) throws IOException {
+        boolean acquired = onMain(() -> {
+            if (maintenance || !manager.isInitialized() || !admission.isEmpty() || !inFlightEpisodes.isEmpty()
+                    || !probing.isEmpty() || !preparing.isEmpty() || !submitting.isEmpty()
+                    || !importing.isEmpty() || !replacements.isEmpty()) return false;
+            for (Download download : manager.getCurrentDownloads()) {
+                if (download.state == Download.STATE_QUEUED || download.state == Download.STATE_DOWNLOADING
+                        || download.state == Download.STATE_REMOVING || download.state == Download.STATE_RESTARTING) return false;
+            }
+            maintenance = true;
+            return true;
+        });
+        if (!acquired) throw new OfflineCacheMaintenance.Busy();
+        try { return work.call(); }
+        catch (IOException error) { throw error; }
+        catch (Exception error) { throw new IOException("Cache maintenance failed", error); }
+        finally { onMain(() -> { maintenance = false; return null; }); }
     }
 
     public void resumeService() {
@@ -250,6 +279,7 @@ public final class OfflineCache {
     /** Reserves the logical episode before source resolution; every public entry uses this gate. */
     void requestEpisode(com.fongmi.android.tv.bean.History history,
                         java.util.function.Consumer<Callback> ready, Callback callback) {
+        if (maintenance) { callback.complete(com.fongmi.android.tv.R.string.offline_cleanup_busy); return; }
         String key = OfflineVideo.identity(history);
         if (admission.containsKey(key) || inFlightEpisodes.containsKey(key)) {
             callback.complete(com.fongmi.android.tv.R.string.offline_preparing);
@@ -281,6 +311,7 @@ public final class OfflineCache {
     }
 
     private void releaseFlight(String id) {
+        resolvedMedia.remove(id);
         submitting.remove(id);
         flightTokens.remove(id);
         inFlightEpisodes.values().removeIf(id::equals);
@@ -294,7 +325,26 @@ public final class OfflineCache {
 
     public boolean damaged(String id) { return "integrity".equals(errors.getString(id, "")); }
 
+    private static boolean conflictingMedia(OfflineVideo first, OfflineVideo second) {
+        if (!first.url.equals(second.url) || !first.headers.equals(second.headers)) return false;
+        var a = OfflineHistory.original(first); var b = OfflineHistory.original(second);
+        return a != null && b != null && a.getKey().equals(b.getKey()) && a.getCid() == b.getCid()
+                && a.getVodFlag().equals(b.getVodFlag()) && !a.getVodRemarks().isBlank() && !b.getVodRemarks().isBlank()
+                && !a.getVodRemarks().equals(b.getVodRemarks());
+    }
+
+    private boolean conflictingMedia(OfflineVideo video) throws IOException {
+        for (var other : resolvedMedia.values()) if (conflictingMedia(video, other)) return true;
+        for (var download : list()) {
+            if (download.state == Download.STATE_REMOVING) continue;
+            try { if (conflictingMedia(video, OfflineVideo.decode(download.request.data))) return true; }
+            catch (IllegalArgumentException ignored) {}
+        }
+        return false;
+    }
+
     public void add(OfflineVideo video, TrackSelectionParameters parameters, Callback callback) {
+        if (maintenance) { callback.complete(com.fongmi.android.tv.R.string.offline_cleanup_busy); return; }
         if (replacements.values().stream().anyMatch(value -> value.video.episodeKey().equals(video.episodeKey()))
                 || importing.contains(video.episodeKey()) || inFlightEpisodes.containsKey(video.episodeKey()) || submitting.contains(video.id)) {
             callback.complete(com.fongmi.android.tv.R.string.offline_exists);
@@ -314,6 +364,10 @@ public final class OfflineCache {
             callback.complete(com.fongmi.android.tv.R.string.offline_storage_error);
             return;
         }
+        try {
+            if (conflictingMedia(video)) { callback.complete(com.fongmi.android.tv.R.string.offline_episode_conflict); return; }
+        } catch (IOException error) { callback.complete(com.fongmi.android.tv.R.string.offline_storage_error); return; }
+        resolvedMedia.put(video.id, video);
         inFlightEpisodes.put(video.episodeKey(), video.id);
         flightTokens.put(video.id, new Object());
         probing.add(video.id);
@@ -438,6 +492,7 @@ public final class OfflineCache {
     }
 
     public void replace(Download old, OfflineVideo fresh, Callback callback) {
+        if (maintenance) { callback.complete(com.fongmi.android.tv.R.string.offline_cleanup_busy); return; }
         Replacement pending = null;
         try {
             Download current = find(old.request.id);
