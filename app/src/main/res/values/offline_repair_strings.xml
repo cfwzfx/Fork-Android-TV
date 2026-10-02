@@ -1,0 +1,11 @@
+<resources>
+    <string name="offline_more">More actions</string>
+    <string name="offline_verify">Check cache</string>
+    <string name="offline_verifying">Checking cached files…</string>
+    <string name="offline_verified">Cached files passed the check. The source itself may still be incomplete. If playback reports an error, download again.</string>
+    <string name="offline_incomplete">Incomplete cache</string>
+    <string name="offline_integrity_error">Media data is incomplete or invalid. Please download this episode again.</string>
+    <string name="offline_recache">Download again</string>
+    <string name="offline_recache_question">Remove and download the video for %1$s again? Playback history, saved subtitles and comments will be retained. The old video is removed after a new address passes inspection.</string>
+    <string name="offline_recache_config">Switch to this episode’s original source configuration before downloading again.</string>
+</resources>

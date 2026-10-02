@@ -23,15 +23,35 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class OfflineEpisodeResolver {
 
     static void resolve(Context context, History original, OfflineCache.Callback callback) {
+        resolve(context, original, false, video -> OfflineIntegration.get(context).add(video, OfflineIntegration.downloadParameters().build(), callback), callback);
+    }
+
+    static void refresh(Context context, History original, java.util.function.Consumer<OfflineVideo> ready, OfflineCache.Callback callback) {
+        resolve(context, original, true, ready, callback);
+    }
+
+    private static void resolve(Context context, History original, boolean refresh, java.util.function.Consumer<OfflineVideo> ready, OfflineCache.Callback callback) {
         History history = original.copy();
         String identity = OfflineVideo.identity(history);
         callback.complete(R.string.offline_preparing);
-        Context application = context.getApplicationContext();
         AtomicBoolean done = new AtomicBoolean();
         ParseJob[] parse = new ParseJob[1];
         Future<?> request = Task.submit(() -> {
             try {
                 String key = history.getKey().split(java.util.regex.Pattern.quote(AppDatabase.SYMBOL), -1)[0];
+                if (refresh) {
+                    if (com.fongmi.android.tv.api.config.VodConfig.getCid() != history.getCid()) {
+                        App.post(() -> finish(done, callback, R.string.offline_recache_config)); return;
+                    }
+                    String id = history.getKey().split(java.util.regex.Pattern.quote(AppDatabase.SYMBOL), -1)[1];
+                    var detail = SiteApi.detailContent(key, id).getVod();
+                    if (!id.equals(detail.getId())) throw new IllegalStateException("The original show is unavailable");
+                    var episodes = detail.getFlags().stream().filter(line -> line.getFlag().equals(history.getVodFlag()))
+                            .flatMap(line -> line.getEpisodes().stream()).filter(episode -> history.getVodRemarks().trim().isEmpty()
+                                    ? episode.getUrl().equals(history.getEpisodeUrl()) : episode.getName().equals(history.getVodRemarks())).toList();
+                    if (episodes.size() != 1) throw new IllegalStateException("No unique exact episode");
+                    history.setEpisodeUrl(episodes.get(0).getUrl());
+                }
                 Result result = SiteApi.playerContent(key, history.getVodFlag(), history.getEpisodeUrl(), new Source() {
                     @Override public String fetch(Result value) throws Exception {
                         // Stateful P2P/native extractors cannot provide independent complete HTTP downloads.
@@ -44,6 +64,9 @@ final class OfflineEpisodeResolver {
                 });
                 App.post(() -> {
                     if (done.get()) return;
+                    if (refresh && com.fongmi.android.tv.api.config.VodConfig.getCid() != history.getCid()) {
+                        finish(done, callback, R.string.offline_recache_config); return;
+                    }
                     if (result.getDrm() != null || result.getUrl().isEmpty()) {
                         finish(done, callback, R.string.offline_unsupported);
                         return;
@@ -51,6 +74,9 @@ final class OfflineEpisodeResolver {
                     ParseCallback resolved = new ParseCallback() {
                         @Override public void onParseSuccess(Map<String, String> headers, String url, String from) {
                             if (!done.compareAndSet(false, true)) return;
+                            if (refresh && com.fongmi.android.tv.api.config.VodConfig.getCid() != history.getCid()) {
+                                callback.complete(R.string.offline_recache_config); return;
+                            }
                             if (!(url.startsWith("http://") || url.startsWith("https://")) || url.contains("***")) {
                                 callback.complete(R.string.offline_unsupported);
                                 return;
@@ -60,7 +86,7 @@ final class OfflineEpisodeResolver {
                             OfflineVideo video = new OfflineVideo(identity, history.getVodName(), history.getVodRemarks(),
                                     history.getVodFlag(), url, result.getFormat(), merged, history.toString(),
                                     App.gson().toJson(result.getDanmaku()), result.toString());
-                            try { OfflineIntegration.get(application).add(video, OfflineIntegration.downloadParameters().build(), callback); }
+                            try { ready.accept(video); }
                             catch (RuntimeException error) { callback.complete(R.string.offline_storage_error); }
                         }
                         @Override public void onParseError() {

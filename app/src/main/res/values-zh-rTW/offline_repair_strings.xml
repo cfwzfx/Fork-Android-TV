@@ -1,0 +1,11 @@
+<resources>
+    <string name="offline_more">更多操作</string>
+    <string name="offline_verify">檢查快取</string>
+    <string name="offline_verifying">正在檢查快取檔案…</string>
+    <string name="offline_verified">快取檔案檢查通過。但無法保證影片來源提供的內容本身完整；若播放仍報錯，可選擇重新快取。</string>
+    <string name="offline_incomplete">快取不完整</string>
+    <string name="offline_integrity_error">媒體資料不完整或無效，請重新快取本集</string>
+    <string name="offline_recache">重新快取</string>
+    <string name="offline_recache_question">重新快取「%1$s」？新位址檢測通過後會刪除該集舊影片並重新下載，保留播放記錄、已儲存字幕及彈幕。</string>
+    <string name="offline_recache_config">請先切換到本集原來的來源設定，再重新快取</string>
+</resources>

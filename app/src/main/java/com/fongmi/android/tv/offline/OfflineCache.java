@@ -63,6 +63,8 @@ public final class OfflineCache {
     private final Set<String> importing = new HashSet<>();
     private final Map<String, Object> flightTokens = new HashMap<>();
     private final Set<String> submitting = new HashSet<>();
+    private final Map<String, Replacement> replacements = new HashMap<>();
+    private record Replacement(OfflineVideo video, Object token, Callback callback) {}
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     public static synchronized OfflineCache get(Context context, NetworkFactory network) {
@@ -75,13 +77,14 @@ public final class OfflineCache {
 
     private OfflineCache(Context context, NetworkFactory network) {
         this.context = context;
-        this.network = network;
+        this.network = headers -> OfflineHttpDataSource.factory(network.create(headers));
         errors = context.getSharedPreferences("offline_errors", Context.MODE_PRIVATE);
         StandaloneDatabaseProvider database = new StandaloneDatabaseProvider(context);
         cache = new SimpleCache(new File(context.getFilesDir(), "offline_media"), new NoOpCacheEvictor(), database);
         manager = new DownloadManager(context, new DefaultDownloadIndex(database, "offline"), request -> {
             OfflineVideo video = OfflineVideo.decode(request.data);
-            return new DefaultDownloaderFactory(dataSource(video, false), Runnable::run).createDownloader(request);
+            return OfflineCacheIntegrity.checked(context, cache, request, dataSource(video, true),
+                    new DefaultDownloaderFactory(dataSource(video, false), Runnable::run).createDownloader(request));
         });
         manager.setRequirements(new Requirements(Requirements.NETWORK));
         manager.setMaxParallelDownloads(2);
@@ -92,6 +95,8 @@ public final class OfflineCache {
                 if (exception != null) {
                     // Do not persist exception messages containing signed URLs, cookies or other credentials.
                     String reason = exception instanceof HttpDataSource.InvalidResponseCodeException ? "http" : "download";
+                    for (Throwable cause = exception; cause != null; cause = cause.getCause())
+                        if (cause instanceof OfflineCacheIntegrity.Incomplete || cause instanceof java.io.EOFException) { reason = "integrity"; break; }
                     errors.edit().putString(download.request.id, reason).apply();
                 } else if (download.state == Download.STATE_COMPLETED) {
                     errors.edit().remove(download.request.id).apply();
@@ -101,6 +106,8 @@ public final class OfflineCache {
             @Override
             public void onDownloadRemoved(DownloadManager manager, Download download) {
                 releaseFlight(download.request.id);
+                Replacement replacement = replacements.get(download.request.id);
+                if (replacement != null) { finishReplacement(replacement); return; }
                 try {
                     if (importing.contains(OfflineVideo.decode(download.request.data).episodeKey())) return;
                     for (String key : cache.getKeys()) {
@@ -153,7 +160,7 @@ public final class OfflineCache {
         DownloadService.start(context, OfflineDownloadService.class);
     }
 
-    private CacheDataSource.Factory dataSource(OfflineVideo video, boolean offline) {
+    CacheDataSource.Factory dataSource(OfflineVideo video, boolean offline) {
         CacheDataSource.Factory factory = new CacheDataSource.Factory().setCache(cache)
                 .setCacheKeyFactory(spec -> video.id + ":" + (spec.key == null ? spec.uri.toString() : spec.key));
         if (offline) return factory.setCacheWriteDataSinkFactory(null);
@@ -201,10 +208,25 @@ public final class OfflineCache {
                 String primaryKey = video.id + ":" + (download.request.customCacheKey == null
                         ? download.request.uri.toString() : download.request.customCacheKey);
                 if (available > 0 && available >= download.getBytesDownloaded()
-                        && !cache.getCachedSpans(primaryKey).isEmpty()) return download;
+                        && !cache.getCachedSpans(primaryKey).isEmpty()) {
+                    try { verify(download); return download; }
+                    catch (IOException error) { /* Damaged completed records cannot replace online media. */ }
+                } else errors.edit().putString(download.request.id, "integrity").apply();
             } catch (RuntimeException ignored) { /* Invalid metadata is never a match. */ }
         }
         return null;
+    }
+
+    /** Runs on a worker; never requests the video source. */
+    public void verify(Download download) throws IOException {
+        try {
+            OfflineCacheIntegrity.verify(context, cache, download.request, dataSource(OfflineVideo.decode(download.request.data), true));
+            if (download.state == Download.STATE_COMPLETED) errors.edit().remove(download.request.id).apply();
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt(); throw new IOException("Cache verification interrupted", error);
+        } catch (IOException error) {
+            errors.edit().putString(download.request.id, "integrity").apply(); throw error;
+        }
     }
 
     private Download existingEpisode(String episodeKey, String id) throws IOException {
@@ -265,12 +287,16 @@ public final class OfflineCache {
     }
 
     public int failure(String id) {
+        if (damaged(id)) return com.fongmi.android.tv.R.string.offline_integrity_error;
         return "http".equals(errors.getString(id, "download"))
                 ? com.fongmi.android.tv.R.string.offline_http_error : com.fongmi.android.tv.R.string.offline_download_error;
     }
 
+    public boolean damaged(String id) { return "integrity".equals(errors.getString(id, "")); }
+
     public void add(OfflineVideo video, TrackSelectionParameters parameters, Callback callback) {
-        if (importing.contains(video.episodeKey()) || inFlightEpisodes.containsKey(video.episodeKey()) || submitting.contains(video.id)) {
+        if (replacements.values().stream().anyMatch(value -> value.video.episodeKey().equals(video.episodeKey()))
+                || importing.contains(video.episodeKey()) || inFlightEpisodes.containsKey(video.episodeKey()) || submitting.contains(video.id)) {
             callback.complete(com.fongmi.android.tv.R.string.offline_exists);
             return;
         }
@@ -409,6 +435,73 @@ public final class OfflineCache {
         errors.edit().remove(download.request.id).apply();
         DownloadService.sendAddDownload(context, OfflineDownloadService.class, download.request, false);
         DownloadService.sendSetStopReason(context, OfflineDownloadService.class, download.request.id, 0, false);
+    }
+
+    public void replace(Download old, OfflineVideo fresh, Callback callback) {
+        Replacement pending = null;
+        try {
+            Download current = find(old.request.id);
+            if (current == null || current.startTimeMs != old.startTimeMs || !java.util.Arrays.equals(current.request.data, old.request.data)
+                    || (current.state != Download.STATE_COMPLETED && current.state != Download.STATE_FAILED && current.state != Download.STATE_STOPPED)
+                    || !OfflineVideo.sameEpisode(OfflineHistory.original(OfflineVideo.decode(old.request.data)), OfflineHistory.original(fresh))) {
+                callback.complete(com.fongmi.android.tv.R.string.offline_not_ready); return;
+            }
+            String key = fresh.episodeKey();
+            if (admission.containsKey(key) || inFlightEpisodes.containsKey(key) || replacements.containsKey(old.request.id)) {
+                callback.complete(com.fongmi.android.tv.R.string.offline_exists); return;
+            }
+            var preferences = context.getSharedPreferences("offline_playback", 0);
+            String comments = preferences.getString("danmaku:" + old.request.id, OfflineVideo.decode(old.request.data).danmaku);
+            var retained = new ArrayList<>(com.fongmi.android.tv.bean.Danmaku.arrayFrom(comments));
+            for (var item : com.fongmi.android.tv.bean.Danmaku.arrayFrom(fresh.danmaku)) if (!retained.contains(item)) retained.add(item);
+            OfflineVideo video = fresh.withId(old.request.id).withPlaybackState(fresh.history, com.fongmi.android.tv.App.gson().toJson(retained));
+            Object token = new Object();
+            Replacement replacement = new Replacement(video, token, callback);
+            replacements.put(old.request.id, replacement); admission.put(key, token);
+            pending = replacement;
+            callback.complete(com.fongmi.android.tv.R.string.offline_preparing);
+            com.fongmi.android.tv.utils.Task.execute(() -> {
+                try {
+                    OfflineProbe.inspect(video, network);
+                    handler.post(() -> {
+                        if (replacements.get(video.id) != replacement) return;
+                        try { DownloadService.sendRemoveDownload(context, OfflineDownloadService.class, video.id, false); }
+                        catch (RuntimeException error) { endReplacement(replacement, com.fongmi.android.tv.R.string.offline_storage_error); }
+                    });
+                } catch (Exception error) {
+                    handler.post(() -> endReplacement(replacement, OfflineProbe.failure(error)));
+                }
+            });
+        } catch (Exception error) {
+            if (pending != null) endReplacement(pending, com.fongmi.android.tv.R.string.offline_storage_error);
+            else callback.complete(com.fongmi.android.tv.R.string.offline_storage_error);
+        }
+    }
+
+    private void endReplacement(Replacement replacement, int result) {
+        replacements.remove(replacement.video.id, replacement);
+        admission.remove(replacement.video.episodeKey(), replacement.token);
+        replacement.callback.complete(result);
+    }
+
+    private void finishReplacement(Replacement replacement) {
+        com.fongmi.android.tv.utils.Task.execute(() -> {
+            try {
+                for (String key : cache.getKeys())
+                    if (key.startsWith(replacement.video.id + ":") && !key.startsWith(replacement.video.id + ":http://offline.subtitle/"))
+                        cache.removeResource(key);
+                handler.post(() -> {
+                    replacements.remove(replacement.video.id, replacement);
+                    try { add(replacement.video, OfflineIntegration.downloadParameters().build(), result -> {
+                        if (result != com.fongmi.android.tv.R.string.offline_preparing)
+                            admission.remove(replacement.video.episodeKey(), replacement.token);
+                        replacement.callback.complete(result);
+                    }); } catch (RuntimeException error) { endReplacement(replacement, com.fongmi.android.tv.R.string.offline_storage_error); }
+                });
+            } catch (Exception error) {
+                handler.post(() -> endReplacement(replacement, com.fongmi.android.tv.R.string.offline_storage_error));
+            }
+        });
     }
 
     public void remove(String id) {

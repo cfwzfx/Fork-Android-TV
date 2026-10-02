@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.utils.Notify;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -77,7 +78,7 @@ final class OfflineCacheList {
         int completed = 0, pending = 0;
         long bytes = 0;
         for (Download download : downloads) {
-            if (download.state == Download.STATE_COMPLETED) completed++;
+            if (download.state == Download.STATE_COMPLETED && !cache.damaged(download.request.id)) completed++;
             else if (download.state != Download.STATE_REMOVING) pending++;
             bytes += download.getBytesDownloaded();
         }
@@ -115,7 +116,8 @@ final class OfflineCacheList {
     private void action(Download download) {
         switch (download.state) {
             case Download.STATE_COMPLETED:
-                OfflineIntegration.play(activity, download.request.id);
+                if (cache.damaged(download.request.id)) recache(download);
+                else OfflineIntegration.play(activity, download.request.id);
                 break;
             case Download.STATE_FAILED:
             case Download.STATE_STOPPED:
@@ -129,6 +131,43 @@ final class OfflineCacheList {
             case Download.STATE_REMOVING:
                 break;
         }
+    }
+
+    private void more(Download selected) {
+        List<Integer> options = new ArrayList<>();
+        if (selected.state == Download.STATE_COMPLETED) options.add(R.string.offline_verify);
+        if (selected.state == Download.STATE_COMPLETED || selected.state == Download.STATE_FAILED || selected.state == Download.STATE_STOPPED)
+            options.add(R.string.offline_recache);
+        options.add(R.string.offline_delete);
+        String[] labels = options.stream().map(activity::getString).toArray(String[]::new);
+        new AlertDialog.Builder(activity).setTitle(name(selected)).setItems(labels, (dialog, index) -> {
+            int option = options.get(index);
+            if (option == R.string.offline_recache) recache(selected);
+            else if (option == R.string.offline_verify) {
+                Notify.show(R.string.offline_verifying);
+                reader.execute(() -> {
+                    int result = R.string.offline_verified;
+                    try { cache.verify(selected); }
+                    catch (IOException error) { result = R.string.offline_integrity_error; }
+                    int message = result;
+                    handler.post(() -> {
+                        if (closed || activity.isDestroyed()) return;
+                        new AlertDialog.Builder(activity).setMessage(message).setPositiveButton(android.R.string.ok, null).show();
+                        refresh();
+                    });
+                });
+            } else new AlertDialog.Builder(activity)
+                    .setMessage(activity.getString(R.string.offline_delete_question, name(selected)))
+                    .setNegativeButton(R.string.offline_cancel, null)
+                    .setPositiveButton(R.string.offline_delete, (confirm, which) -> cache.remove(selected.request.id)).show();
+        }).show();
+    }
+
+    private void recache(Download selected) {
+        new AlertDialog.Builder(activity).setMessage(activity.getString(R.string.offline_recache_question, name(selected)))
+                .setNegativeButton(R.string.offline_cancel, null)
+                .setPositiveButton(R.string.offline_recache, (dialog, which) ->
+                        OfflineCacheRepair.start(activity.getApplicationContext(), selected, Notify::show)).show();
     }
 
     private String name(Download download) {
@@ -233,7 +272,7 @@ final class OfflineCacheList {
             int completed = 0;
             long bytes = 0;
             for (Download download : group.downloads) {
-                if (download.state == Download.STATE_COMPLETED) completed++;
+                if (download.state == Download.STATE_COMPLETED && !cache.damaged(download.request.id)) completed++;
                 bytes += download.getBytesDownloaded();
             }
             title.setText(group.title);
@@ -259,15 +298,10 @@ final class OfflineCacheList {
             action = view.findViewById(R.id.offline_action);
             delete = view.findViewById(R.id.offline_delete);
             progress = view.findViewById(R.id.offline_progress);
-            androidx.appcompat.widget.TooltipCompat.setTooltipText(delete, activity.getString(R.string.offline_delete));
+            androidx.appcompat.widget.TooltipCompat.setTooltipText(delete, activity.getString(R.string.offline_more));
             action.setOnClickListener(v -> OfflineCacheList.this.action(download));
-            delete.setOnClickListener(v -> {
-                Download selected = download;
-                new AlertDialog.Builder(activity)
-                        .setMessage(activity.getString(R.string.offline_delete_question, name(selected)))
-                        .setNegativeButton(R.string.offline_cancel, null)
-                        .setPositiveButton(R.string.offline_delete, (dialog, which) -> cache.remove(selected.request.id)).show();
-            });
+            delete.setOnClickListener(v -> more(download));
+            view.setOnLongClickListener(v -> { if (!OfflineCacheRepair.busy(download.request.id)) more(download); return true; });
         }
 
         void bind(Download value) {
@@ -291,25 +325,27 @@ final class OfflineCacheList {
                 case Download.STATE_FAILED: state = R.string.offline_failed; button = R.string.offline_retry; break;
                 case Download.STATE_REMOVING: state = R.string.offline_removing; break;
             }
+            boolean damaged = cache.damaged(value.request.id);
+            if (damaged && value.state == Download.STATE_COMPLETED) { state = R.string.offline_incomplete; button = R.string.offline_recache; }
             float percent = value.getPercentDownloaded();
             status.setText(state);
-            int color = value.state == Download.STATE_COMPLETED ? R.color.offline_success
-                    : value.state == Download.STATE_FAILED ? R.color.offline_danger : R.color.offline_accent;
+            int color = value.state == Download.STATE_COMPLETED && !damaged ? R.color.offline_success
+                    : value.state == Download.STATE_FAILED || damaged ? R.color.offline_danger : R.color.offline_accent;
             status.setTextColor(activity.getColor(color));
             String text = Formatter.formatFileSize(activity, value.getBytesDownloaded());
             if (percent >= 0 && value.state != Download.STATE_COMPLETED) text += " · " + (int) percent + "%";
-            if (value.state == Download.STATE_FAILED) text += "\n" + activity.getString(cache.failure(value.request.id));
+            if (value.state == Download.STATE_FAILED || damaged) text += "\n" + activity.getString(cache.failure(value.request.id));
             detail.setText(text);
             progress.setVisibility(value.state == Download.STATE_COMPLETED ? View.GONE : View.VISIBLE);
             progress.setIndeterminate(percent < 0 && value.state == Download.STATE_DOWNLOADING);
             progress.setProgress(Math.max(0, (int) percent));
             int icon = button == R.string.offline_pause ? R.drawable.offline_pause
-                    : button == R.string.offline_retry ? R.drawable.offline_retry : R.drawable.offline_play;
+                    : button == R.string.offline_retry || button == R.string.offline_recache ? R.drawable.offline_retry : R.drawable.offline_play;
             action.setImageResource(icon);
             action.setContentDescription(activity.getString(button));
             androidx.appcompat.widget.TooltipCompat.setTooltipText(action, activity.getString(button));
-            action.setEnabled(value.state != Download.STATE_REMOVING);
-            delete.setEnabled(value.state != Download.STATE_REMOVING);
+            action.setEnabled(value.state != Download.STATE_REMOVING && !OfflineCacheRepair.busy(value.request.id));
+            delete.setEnabled(value.state != Download.STATE_REMOVING && !OfflineCacheRepair.busy(value.request.id));
             action.setAlpha(action.isEnabled() ? 1f : 0.5f);
             delete.setAlpha(delete.isEnabled() ? 1f : 0.5f);
         }

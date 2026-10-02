@@ -753,6 +753,16 @@ public class OfflineCacheTest {
         serviceInfo.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
                 | android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
         automation.setServiceInfo(serviceInfo);
+        boolean menuClicked = false;
+        for (android.view.accessibility.AccessibilityWindowInfo window : automation.getWindows()) {
+            var root = window.getRoot();
+            if (root == null) continue;
+            for (var node : root.findAccessibilityNodeInfosByText(context.getString(R.string.offline_delete)))
+                if (node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)) { menuClicked = true; break; }
+            if (menuClicked) break;
+        }
+        assertTrue("More actions must retain deletion", menuClicked);
+        automation.waitForIdle(500, 3000);
         boolean clicked = false;
         long confirmationDeadline = System.currentTimeMillis() + 5000;
         do {
@@ -1067,6 +1077,155 @@ public class OfflineCacheTest {
         assertTrue(cleared.await(10, TimeUnit.SECONDS));
         assertEquals(Download.STATE_COMPLETED, cache.find(video.id).state);
         playOffline(download, true);
+    }
+
+    @Test public void cloudPartialResponseMustNotBeTreatedAsAWholeFile() throws Exception {
+        OfflineVideo video = video("a/capped.mp4", "alpha");
+        long expected;
+        try (InputStream input = InstrumentationRegistry.getInstrumentation().getContext().getAssets().open("offline/sample.mp4")) {
+            expected = input.readAllBytes().length;
+        }
+        add(video);
+        Download download = waitState(video.id, Download.STATE_COMPLETED);
+        assertEquals("Content-Range total, not the first response length, is the full video", expected, download.getBytesDownloaded());
+        playOffline(download, true);
+    }
+
+    @Test public void missingHlsTailCannotBeHiddenByOtherCachedResources() throws Exception {
+        OfflineVideo video = transferable("a/hls/master.m3u8");
+        add(video); waitState(video.id, Download.STATE_COMPLETED);
+        File subtitle = File.createTempFile("verify-padding-", ".srt", context.getCacheDir());
+        try {
+            java.nio.file.Files.writeString(subtitle.toPath(), "1\n00:00:00,000 --> 00:00:03,000\n" + "Subtitle text ".repeat(8192));
+            OfflineSubtitles.save(context, cache, video, com.fongmi.android.tv.bean.Sub.from("字幕.srt", subtitle.toURI().toString()), false);
+        } finally { subtitle.delete(); }
+        String tail = video.id + ":" + server.url("a/hls/audio4.ts");
+        assertFalse(cache.storage().getCachedSpans(tail).isEmpty());
+        cache.storage().removeResource(tail);
+        int requests = server.requests.get();
+        server.blocked = true;
+        assertNull("All selected segments must be present; total byte count is insufficient", cache.completedFor(OfflineHistory.original(video)));
+        assertEquals("Integrity detection must never redownload media", requests, server.requests.get());
+    }
+
+    @Test public void oldHalfMp4WithIncorrectEofMetadataFailsManualVerification() throws Exception {
+        OfflineVideo video = video("a/sample.mp4", "alpha");
+        add(video);
+        Download completed = waitState(video.id, Download.STATE_COMPLETED);
+        String key = video.id + ":" + video.url;
+        byte[] full = java.nio.file.Files.readAllBytes(cache.storage().getCachedSpans(key).first().file.toPath());
+        int half = full.length / 2;
+        cache.storage().removeResource(key);
+        var hole = cache.storage().startReadWriteNonBlocking(key, 0, half);
+        try {
+            File file = cache.storage().startFile(key, 0, half);
+            try (var output = new java.io.FileOutputStream(file)) { output.write(full, 0, half); }
+            cache.storage().commitFile(file, half);
+            cache.storage().applyContentMetadataMutations(key, androidx.media3.datasource.cache.ContentMetadataMutations.setContentLength(
+                    new androidx.media3.datasource.cache.ContentMetadataMutations(), half));
+        } finally { cache.storage().releaseHoleSpan(hole); }
+        int requests = server.requests.get(); server.blocked = true;
+        try {
+            cache.verify(completed);
+            fail("MP4's declared media box extends beyond the incorrectly recorded cached EOF");
+        } catch (java.io.IOException expected) {}
+        assertEquals(requests, server.requests.get());
+    }
+
+    @Test public void wrongCloudRangeCannotCompleteTheDownload() throws Exception {
+        OfflineVideo video = video("a/badrange.mp4", "alpha"); add(video);
+        Download failed = waitState(video.id, Download.STATE_FAILED);
+        assertTrue("A repeated first chunk must never be accepted as the remaining media", failed.getBytesDownloaded() < 51131);
+        assertEquals(R.string.offline_integrity_error, cache.failure(video.id));
+    }
+
+    @Test public void manualRecacheRefreshesTheExactEpisodeThroughTheSourceApi() throws Exception {
+        OfflineVideo base = transferable("a/sample.mp4");
+        var history = OfflineHistory.original(base);
+        var config = com.fongmi.android.tv.api.config.VodConfig.get();
+        var configField = config.getClass().getSuperclass().getDeclaredField("config"); configField.setAccessible(true);
+        var sitesField = config.getClass().getDeclaredField("sites"); sitesField.setAccessible(true);
+        Object previousConfig = configField.get(config), previousSites = sitesField.get(config);
+        history.setKey("repair_test@@@refresh-show@@@" + history.getCid());
+        history.setVodFlag("测试线路"); history.setVodRemarks("第2集");
+        OfflineVideo video = new OfflineVideo(OfflineVideo.identity(history), base.title, history.getVodRemarks(), history.getVodFlag(),
+                base.url, base.mimeType, base.headers, history.toString(), base.danmaku, base.source);
+        ids.add(video.id); histories.add(history);
+        try {
+            configField.set(config, com.fongmi.android.tv.bean.Config.find(history.getCid()));
+            var site = com.fongmi.android.tv.App.gson().fromJson("{\"key\":\"repair_test\",\"name\":\"Repair\",\"type\":1,\"api\":\"" + server.url("repair-api") + "\"}", com.fongmi.android.tv.bean.Site.class);
+            sitesField.set(config, new ArrayList<>(java.util.Collections.singletonList(site)));
+            add(video); Download old = waitState(video.id, Download.STATE_COMPLETED);
+            CountDownLatch done = new CountDownLatch(1); AtomicInteger message = new AtomicInteger();
+            main(() -> OfflineCacheRepair.start(context, old, result -> {
+                if (result != R.string.offline_preparing) { message.set(result); done.countDown(); }
+            }));
+            assertTrue(done.await(50, TimeUnit.SECONDS)); assertEquals(R.string.offline_added, message.get());
+            Download replaced = waitState(video.id, Download.STATE_COMPLETED);
+            assertEquals("Use the current exact episode address, not the saved expired address", server.url("comments/sample.mp4"), replaced.request.uri.toString());
+            assertFalse(OfflineCacheRepair.busy(video.id));
+            assertTrue(OfflineVideo.sameEpisode(history, OfflineHistory.original(OfflineVideo.decode(replaced.request.data))));
+            cache.verify(replaced);
+        } finally {
+            configField.set(config, previousConfig); sitesField.set(config, previousSites);
+        }
+    }
+
+    @Test public void invalidFreshAddressLeavesCompletedCacheUsableAndAllowsRetry() throws Exception {
+        OfflineVideo video = transferable("a/sample.mp4"); add(video);
+        Download old = waitState(video.id, Download.STATE_COMPLETED);
+        OfflineVideo expired = new OfflineVideo(OfflineVideo.identity(OfflineHistory.original(video)), video.title, video.episode, video.line,
+                server.url("a/expired.m3u8"), null, video.headers, video.history, video.danmaku, video.source);
+        CountDownLatch failed = new CountDownLatch(1); AtomicInteger message = new AtomicInteger();
+        main(() -> cache.replace(old, expired, result -> {
+            if (result != R.string.offline_preparing) { message.set(result); failed.countDown(); }
+        }));
+        assertTrue(failed.await(30, TimeUnit.SECONDS));
+        assertNotEquals(R.string.offline_added, message.get());
+        assertEquals(old.request.uri, cache.find(video.id).request.uri);
+        cache.verify(cache.find(video.id));
+        assertFalse(cache.storage().getCachedSpans(video.id + ":" + video.url).isEmpty());
+        CountDownLatch retried = new CountDownLatch(1);
+        main(() -> cache.replace(old, video, result -> {
+            if (result != R.string.offline_preparing) { message.set(result); retried.countDown(); }
+        }));
+        assertTrue(retried.await(30, TimeUnit.SECONDS));
+        assertEquals("Failed resolution must release its reservation", R.string.offline_added, message.get());
+        waitState(video.id, Download.STATE_COMPLETED);
+    }
+
+    @Test public void manualRecacheUsesFreshMediaAndPreservesOtherTasksAndSubtitles() throws Exception {
+        OfflineVideo base = transferable("a/sample.mp4");
+        OfflineVideo video = new OfflineVideo("old-task-" + UUID.randomUUID(), base.title, base.episode, base.line,
+                base.url, base.mimeType, base.headers, base.history, base.danmaku, base.source);
+        ids.add(video.id); add(video);
+        Download old = waitState(video.id, Download.STATE_COMPLETED);
+        OfflineVideo other = video("shared/sample.mp4", "alpha"); add(other); waitState(other.id, Download.STATE_COMPLETED);
+        File subtitle = File.createTempFile("recache-subtitle-", ".srt", context.getCacheDir());
+        try {
+            java.nio.file.Files.writeString(subtitle.toPath(), "1\n00:00:00,000 --> 00:00:03,000\nRepaired subtitle\n");
+            OfflineSubtitles.save(context, cache, video, com.fongmi.android.tv.bean.Sub.from("重下字幕.srt", subtitle.toURI().toString(), "en", androidx.media3.common.MimeTypes.APPLICATION_SUBRIP), false);
+            String comments = "[{\"name\":\"后加弹幕\",\"url\":\"https://comments.test/retained.xml\"}]";
+            context.getSharedPreferences("offline_playback", 0).edit().putString("danmaku:" + video.id, comments).commit();
+            OfflineVideo fresh = new OfflineVideo(OfflineVideo.identity(OfflineHistory.original(video)), video.title, video.episode, video.line,
+                    server.url("b/sample.mp4"), video.mimeType, Map.of("Cookie", "beta"), video.history, video.danmaku, video.source);
+            CountDownLatch done = new CountDownLatch(1); AtomicInteger message = new AtomicInteger();
+            main(() -> cache.replace(old, fresh, result -> {
+                if (result != R.string.offline_preparing) { message.set(result); done.countDown(); }
+            }));
+            assertTrue(done.await(50, TimeUnit.SECONDS));
+            assertEquals(R.string.offline_added, message.get());
+            Download replaced = waitState(old.request.id, Download.STATE_COMPLETED);
+            assertEquals("The old task identity remains usable by cache-page links", old.request.id, replaced.request.id);
+            assertEquals(fresh.url, replaced.request.uri.toString());
+            assertTrue("The old media must be removed", cache.storage().getCachedSpans(video.id + ":" + video.url).isEmpty());
+            assertEquals(Download.STATE_COMPLETED, cache.find(other.id).state);
+            assertEquals(comments, context.getSharedPreferences("offline_playback", 0).getString("danmaku:" + video.id, ""));
+            assertEquals(1, OfflineSubtitles.saved(context, video.id).length());
+            assertTrue(subtitle.delete());
+            subtitleCue(replaced, "en", "Repaired subtitle");
+            playOffline(replaced, true);
+        } finally { subtitle.delete(); }
     }
 
     @Test
@@ -1576,6 +1735,11 @@ public class OfflineCacheTest {
                     if (line.toLowerCase().startsWith("range:")) range = line.substring(6).trim();
                 }
                 OutputStream output = connection.getOutputStream();
+                if (path.startsWith("/repair-api?")) {
+                    byte[] body = ("{\"list\":[{\"vod_id\":\"refresh-show\",\"vod_name\":\"Repair\",\"vod_play_from\":\"测试线路\",\"vod_play_url\":\"第1集$" + url("comments/other.mp4") + "#第2集$" + url("comments/sample.mp4") + "\"}]}").getBytes(StandardCharsets.UTF_8);
+                    output.write(("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+                    output.write(body); return;
+                }
                 if (path.startsWith("/cloud?url=")) {
                     lastCloudInput = path.substring("/cloud?url=".length());
                     byte[] body = ("{\"danmaku\":[{\"name\":\"云搜结果\",\"url\":\"" + url("comments/comments.xml") + "\"}]}" )
@@ -1599,9 +1763,9 @@ public class OfflineCacheTest {
                 }
                 String file = path.substring(path.indexOf('/', 1) + 1);
                 if (file.equals("hls/getM3u8")) file = "hls/master.m3u8";
-                boolean slow = file.equals("slow.mp4");
+                boolean slow = file.equals("slow.mp4"), capped = file.equals("capped.mp4") || file.equals("badrange.mp4");
                 byte[] data;
-                try (InputStream asset = assets.getAssets().open("offline/" + (slow ? "sample.mp4" : file))) {
+                try (InputStream asset = assets.getAssets().open("offline/" + (slow || capped ? "sample.mp4" : file))) {
                     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
                     byte[] chunk = new byte[8192];
                     for (int count; (count = asset.read(chunk)) >= 0;) buffer.write(chunk, 0, count);
@@ -1613,13 +1777,15 @@ public class OfflineCacheTest {
                     data = buffer.toByteArray();
                 }
                 int offset = range.isEmpty() ? 0 : Integer.parseInt(range.substring(6).split("-")[0]);
+                if (file.equals("badrange.mp4")) offset = 0;
                 int end = data.length - 1;
                 if (!range.isEmpty() && !range.endsWith("-")) end = Math.min(end, Integer.parseInt(range.split("-")[1]));
+                if (capped) end = Math.min(end, offset + data.length / 2 - 1);
                 int length = end - offset + 1;
                 String mime = file.endsWith("m3u8") ? "application/vnd.apple.mpegurl" : file.endsWith("mpd") ? "application/dash+xml" : "application/octet-stream";
-                String headers = "HTTP/1.1 " + (range.isEmpty() ? "200 OK" : "206 Partial Content") + "\r\nContent-Type: " + mime
+                String headers = "HTTP/1.1 " + (range.isEmpty() && !capped ? "200 OK" : "206 Partial Content") + "\r\nContent-Type: " + mime
                         + "\r\nContent-Length: " + length + "\r\nAccept-Ranges: bytes\r\nConnection: close\r\n";
-                if (!range.isEmpty()) headers += "Content-Range: bytes " + offset + "-" + end + "/" + data.length + "\r\n";
+                if (!range.isEmpty() || capped) headers += "Content-Range: bytes " + offset + "-" + end + "/" + data.length + "\r\n";
                 output.write((headers + "\r\n").getBytes(StandardCharsets.US_ASCII));
                 for (int at = offset; at <= end; at += 8192) {
                     if (blocked && !(allowComments && path.startsWith("/comments/"))) return;

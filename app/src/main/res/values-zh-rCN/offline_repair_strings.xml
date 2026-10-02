@@ -1,0 +1,11 @@
+<resources>
+    <string name="offline_more">更多操作</string>
+    <string name="offline_verify">检查缓存</string>
+    <string name="offline_verifying">正在检查缓存文件…</string>
+    <string name="offline_verified">缓存文件检查通过。但无法保证视频源提供的内容本身完整；若播放仍报错，可选择重新缓存。</string>
+    <string name="offline_incomplete">缓存不完整</string>
+    <string name="offline_integrity_error">媒体数据不完整或无效，请重新缓存本集</string>
+    <string name="offline_recache">重新缓存</string>
+    <string name="offline_recache_question">重新缓存“%1$s”？新地址检测通过后会删除该集旧视频并重新下载，保留播放记录、已保存字幕及弹幕。</string>
+    <string name="offline_recache_config">请先切换到本集原来的源配置，再重新缓存</string>
+</resources>

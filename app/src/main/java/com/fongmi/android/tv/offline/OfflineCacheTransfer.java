@@ -89,6 +89,7 @@ public final class OfflineCacheTransfer {
         try {
             Download download = cache.find(id);
             if (download == null || download.state != Download.STATE_COMPLETED) throw new IOException("Only completed caches can be sent");
+            cache.verify(download);
             DownloadRequest request = download.request;
             if (request.keySetId != null || request.byteRange != null || request.timeRange != null)
                 throw new IOException("Protected or partial caches cannot be sent");
@@ -236,6 +237,7 @@ public final class OfflineCacheTransfer {
                 long now = System.currentTimeMillis();
                 Download result = new Download(request, Download.STATE_COMPLETED, now, now,
                         manifest.getLong("contentLength"), 0, Download.FAILURE_REASON_NONE, state);
+                OfflineCacheIntegrity.verify(context, storage, request, cache.dataSource(video, true));
                 OfflinePlaybackState.apply(context, video, manifest.getJSONObject("playback"));
                 ((WritableDownloadIndex) cache.manager().getDownloadIndex()).putDownload(result);
                 finished = true;

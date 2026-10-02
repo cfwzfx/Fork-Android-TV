@@ -84,6 +84,10 @@ public final class OfflineVideo {
         return new OfflineVideo(id, title, episode, line, url, mimeType, headers, history, danmaku, source, true);
     }
 
+    OfflineVideo withId(String id) {
+        return new OfflineVideo(id, title, episode, line, url, mimeType, headers, history, danmaku, source, true);
+    }
+
     public String groupKey() {
         try {
             String original = new JSONObject(history).optString("key");
