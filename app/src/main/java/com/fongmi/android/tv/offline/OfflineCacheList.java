@@ -13,7 +13,6 @@ import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
-import androidx.appcompat.app.AlertDialog;
 import androidx.media3.exoplayer.offline.Download;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.DiffUtil;
@@ -37,6 +36,12 @@ final class OfflineCacheList {
     private final OfflineCache cache;
     private final TextView empty, summary;
     private final View emptyContainer;
+    private final View selectionBar, deleteSelected;
+    private final ImageButton select;
+    private final TextView selectionCount, selectAll;
+    private final java.util.Set<String> selected = new java.util.HashSet<>();
+    private List<Download> downloads = new ArrayList<>();
+    private boolean selecting;
     private boolean visible;
     private boolean querying;
     private boolean closed;
@@ -54,6 +59,88 @@ final class OfflineCacheList {
         recycler.setAdapter(rows);
         cache = OfflineIntegration.get(activity);
         cache.resumeService();
+        selectionBar = root.findViewById(R.id.offline_selection_bar);
+        selectionCount = root.findViewById(R.id.offline_selection_count);
+        selectAll = root.findViewById(R.id.offline_select_all);
+        deleteSelected = root.findViewById(R.id.offline_delete_selected);
+        select = root.findViewById(R.id.offline_select);
+        select.setOnClickListener(v -> { selecting = !selecting; selected.clear(); selectionChanged(); });
+        selectAll.setOnClickListener(v -> {
+            List<Download> available = downloads.stream().filter(this::selectable).toList();
+            if (!available.isEmpty() && available.stream().allMatch(d -> selected.contains(d.request.id))) selected.clear();
+            else for (Download download : available) selected.add(download.request.id);
+            selectionChanged();
+        });
+        deleteSelected.setOnClickListener(v -> deleteSelection());
+        updateSelectionBar();
+    }
+
+    void save(android.os.Bundle state) {
+        state.putBoolean("offline_selecting", selecting);
+        state.putStringArrayList("offline_selected", new ArrayList<>(selected));
+    }
+
+    void restore(android.os.Bundle state) {
+        if (state == null) return;
+        selecting = state.getBoolean("offline_selecting");
+        List<String> ids = state.getStringArrayList("offline_selected");
+        if (ids != null) selected.addAll(ids);
+        updateSelectionBar();
+    }
+
+    boolean cancelSelection() {
+        if (!selecting) return false;
+        selecting = false;
+        selected.clear();
+        selectionChanged();
+        return true;
+    }
+
+    private boolean selectable(Download download) {
+        return download.state != Download.STATE_REMOVING && !OfflineCacheRepair.busy(download.request.id);
+    }
+
+    private void toggleSelection(Download download) {
+        if (!selectable(download)) return;
+        if (!selected.remove(download.request.id)) selected.add(download.request.id);
+        selectionChanged();
+    }
+
+    private void selectionChanged() {
+        updateSelectionBar();
+        rows.display();
+    }
+
+    private void updateSelectionBar() {
+        selectionBar.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        select.setImageResource(R.drawable.offline_select);
+        select.setImageTintList(android.content.res.ColorStateList.valueOf(activity.getColor(
+                selecting ? R.color.offline_accent : R.color.offline_text)));
+        select.setContentDescription(activity.getString(selecting ? R.string.offline_cancel : R.string.offline_multi_select));
+        selectionCount.setText(activity.getString(R.string.offline_selected_count, selected.size()));
+        deleteSelected.setEnabled(!selected.isEmpty());
+        List<Download> available = downloads.stream().filter(this::selectable).toList();
+        boolean all = !available.isEmpty() && available.stream().allMatch(d -> selected.contains(d.request.id));
+        selectAll.setText(all ? R.string.offline_deselect_all : R.string.offline_select_all);
+        selectAll.setEnabled(!available.isEmpty());
+    }
+
+    private void deleteSelection() {
+        List<String> ids = new ArrayList<>(selected);
+        if (ids.isEmpty()) return;
+        OfflineCachePrompt.show(activity, R.string.offline_delete,
+                activity.getString(R.string.offline_delete_selected_question, ids.size()),
+                R.string.offline_delete, () -> {
+                    if (closed || activity.isDestroyed()) return;
+                    try {
+                        for (String id : ids) {
+                            Download current = cache.find(id);
+                            if (current != null && selectable(current)) cache.remove(id);
+                        }
+                    } catch (IOException error) { Notify.show(R.string.offline_load_error); }
+                    cancelSelection();
+                    refresh();
+                });
     }
 
     void start() {
@@ -95,7 +182,12 @@ final class OfflineCacheList {
                 handler.post(() -> {
                     querying = false;
                     if (!visible || closed || activity.isDestroyed()) return;
+                    this.downloads = downloads;
+                    java.util.Set<String> available = new java.util.HashSet<>();
+                    for (Download download : downloads) if (selectable(download)) available.add(download.request.id);
+                    selected.retainAll(available);
                     rows.update(downloads);
+                    updateSelectionBar();
                     updateSummary(downloads);
                     empty.setText(R.string.offline_empty);
                     emptyContainer.setVisibility(downloads.isEmpty() ? View.VISIBLE : View.GONE);
@@ -139,9 +231,7 @@ final class OfflineCacheList {
         if (selected.state == Download.STATE_COMPLETED || selected.state == Download.STATE_FAILED || selected.state == Download.STATE_STOPPED)
             options.add(R.string.offline_recache);
         options.add(R.string.offline_delete);
-        String[] labels = options.stream().map(activity::getString).toArray(String[]::new);
-        new AlertDialog.Builder(activity).setTitle(name(selected)).setItems(labels, (dialog, index) -> {
-            int option = options.get(index);
+        OfflineCacheMenu.show(activity, name(selected), options, option -> {
             if (option == R.string.offline_recache) recache(selected);
             else if (option == R.string.offline_verify) {
                 Notify.show(R.string.offline_verifying);
@@ -152,22 +242,21 @@ final class OfflineCacheList {
                     int message = result;
                     handler.post(() -> {
                         if (closed || activity.isDestroyed()) return;
-                        new AlertDialog.Builder(activity).setMessage(message).setPositiveButton(android.R.string.ok, null).show();
+                        OfflineCachePrompt.show(activity, R.string.offline_verify, activity.getString(message), android.R.string.ok, null);
                         refresh();
                     });
                 });
-            } else new AlertDialog.Builder(activity)
-                    .setMessage(activity.getString(R.string.offline_delete_question, name(selected)))
-                    .setNegativeButton(R.string.offline_cancel, null)
-                    .setPositiveButton(R.string.offline_delete, (confirm, which) -> cache.remove(selected.request.id)).show();
-        }).show();
+            } else OfflineCachePrompt.show(activity, R.string.offline_delete,
+                    activity.getString(R.string.offline_delete_question, name(selected)),
+                    R.string.offline_delete, () -> cache.remove(selected.request.id));
+        });
     }
 
     private void recache(Download selected) {
-        new AlertDialog.Builder(activity).setMessage(activity.getString(R.string.offline_recache_question, name(selected)))
-                .setNegativeButton(R.string.offline_cancel, null)
-                .setPositiveButton(R.string.offline_recache, (dialog, which) ->
-                        OfflineCacheRepair.start(activity.getApplicationContext(), selected, Notify::show)).show();
+        OfflineCachePrompt.show(activity, R.string.offline_recache,
+                activity.getString(R.string.offline_recache_question, name(selected)),
+                R.string.offline_recache, () ->
+                        OfflineCacheRepair.start(activity.getApplicationContext(), selected, Notify::show));
     }
 
     private String name(Download download) {
@@ -259,16 +348,33 @@ final class OfflineCacheList {
     private final class GroupRow extends RecyclerView.ViewHolder {
         private final TextView title, detail;
         private final ImageView arrow;
+        private final android.widget.CheckBox checked;
         private Group group;
         GroupRow(View view) {
             super(view);
             title = view.findViewById(R.id.offline_group_name);
             detail = view.findViewById(R.id.offline_group_detail);
             arrow = view.findViewById(R.id.offline_group_arrow);
+            checked = view.findViewById(R.id.offline_checked);
+            androidx.core.widget.CompoundButtonCompat.setButtonTintList(checked, null);
+            checked.setButtonTintList(null);
+            checked.setOnClickListener(v -> {
+                List<Download> available = group.downloads.stream().filter(OfflineCacheList.this::selectable).toList();
+                boolean all = !available.isEmpty() && available.stream().allMatch(d -> selected.contains(d.request.id));
+                for (Download download : available) {
+                    if (all) selected.remove(download.request.id); else selected.add(download.request.id);
+                }
+                selectionChanged();
+            });
             view.setOnClickListener(v -> rows.toggle(group.key));
         }
         void bind(Group value) {
             group = value;
+            checked.setVisibility(selecting ? View.VISIBLE : View.GONE);
+            List<Download> available = group.downloads.stream().filter(OfflineCacheList.this::selectable).toList();
+            checked.setEnabled(!available.isEmpty());
+            checked.setChecked(!available.isEmpty() && available.stream().allMatch(d -> selected.contains(d.request.id)));
+            checked.setContentDescription(group.title);
             int completed = 0;
             long bytes = 0;
             for (Download download : group.downloads) {
@@ -287,6 +393,7 @@ final class OfflineCacheList {
         private final TextView title, episode, status, detail;
         private final ImageButton action, delete;
         private final ProgressBar progress;
+        private final android.widget.CheckBox checked;
         private Download download;
 
         Row(View view) {
@@ -298,14 +405,28 @@ final class OfflineCacheList {
             action = view.findViewById(R.id.offline_action);
             delete = view.findViewById(R.id.offline_delete);
             progress = view.findViewById(R.id.offline_progress);
+            checked = view.findViewById(R.id.offline_checked);
+            androidx.core.widget.CompoundButtonCompat.setButtonTintList(checked, null);
+            checked.setButtonTintList(null);
+            checked.setOnClickListener(v -> toggleSelection(download));
+            view.setOnClickListener(v -> { if (selecting) toggleSelection(download); });
             androidx.appcompat.widget.TooltipCompat.setTooltipText(delete, activity.getString(R.string.offline_more));
             action.setOnClickListener(v -> OfflineCacheList.this.action(download));
             delete.setOnClickListener(v -> more(download));
-            view.setOnLongClickListener(v -> { if (!OfflineCacheRepair.busy(download.request.id)) more(download); return true; });
+            view.setOnLongClickListener(v -> {
+                if (selectable(download)) { selecting = true; selected.add(download.request.id); selectionChanged(); }
+                return true;
+            });
         }
 
         void bind(Download value) {
             download = value;
+            checked.setVisibility(selecting ? View.VISIBLE : View.GONE);
+            checked.setChecked(selected.contains(value.request.id));
+            checked.setEnabled(selectable(value));
+            checked.setContentDescription(name(value));
+            action.setVisibility(selecting ? View.GONE : View.VISIBLE);
+            delete.setVisibility(selecting ? View.GONE : View.VISIBLE);
             try {
                 OfflineVideo video = OfflineVideo.decode(value.request.data);
                 title.setText(video.episode.isEmpty() ? video.title : video.episode);

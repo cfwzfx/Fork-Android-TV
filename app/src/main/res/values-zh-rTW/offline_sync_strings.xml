@@ -14,4 +14,18 @@
     <string name="offline_sync_error">同步失敗。兩台手機需使用支援此功能的版本，並保持應用程式開啟、連接同一區域網路；請檢查剩餘空間和來源設定後重試。</string>
     <string name="offline_sync_receiving">正在接收快取：%1$s</string>
     <string name="offline_sync_received">快取接收完成：%1$s</string>
+    <string name="offline_sync_selection_hint">按影片選擇整組，或展開選擇集數；僅顯示已完成的快取。</string>
+    <string name="offline_sync_group_count">已選 %1$d / %2$d 集 · %3$s</string>
+    <string name="offline_sync_device_hint">兩台裝置需連接同一區域網路，對方保持應用開啟；點擊裝置開始同步。</string>
+    <string name="offline_sync_device_summary">待同步 %1$d 集 · %2$s</string>
+    <string name="offline_sync_device_count">已發現 %1$d 台裝置</string>
+    <string name="offline_sync_device_empty">暫未發現裝置\n請在對方裝置開啟應用後重新搜尋</string>
+    <string name="offline_sync_transferring">正在同步快取</string>
+    <string name="offline_sync_finished">同步完成</string>
+    <string name="offline_sync_cancelled_heading">同步已取消</string>
+    <string name="offline_sync_failed_heading">同步未完成</string>
+    <string name="offline_sync_episode_progress">目前第 %1$d / %2$d 集</string>
+    <string name="offline_sync_transfer_bytes">%1$d%% · %2$s / %3$s</string>
+    <string name="offline_sync_sent_count">成功同步 %1$d 集</string>
+    <string name="offline_sync_skipped_count">略過已有任務 %1$d 集</string>
 </resources>

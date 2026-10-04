@@ -24,6 +24,14 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
     private final int viewType;
     private java.util.function.Consumer<Episode> cache;
 
+    private java.util.Map<String, Integer> cacheStates = java.util.Collections.emptyMap();
+
+    public void cacheStates(java.util.Map<String, Integer> states) {
+        if (cacheStates.equals(states)) return;
+        cacheStates = new java.util.HashMap<>(states);
+        notifyDataSetChanged();
+    }
+
     public EpisodeAdapter cache(java.util.function.Consumer<Episode> callback) {
         cache = callback;
         return this;
@@ -108,9 +116,31 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
             return new BaseEpisodeHolder(binding.getRoot()) {
                 @Override public void initView(Episode item) {
                     binding.text.setText(item.getDesc().concat(item.getName()));
+                    binding.getRoot().setSelected(item.isSelected());
                     binding.text.setSelected(item.isSelected());
                     binding.text.setOnClickListener(v -> listener.onItemClick(item));
-                    binding.episodeCache.setOnClickListener(v -> cache.accept(item));
+                    String key = item.getName().trim().isEmpty() ? item.getUrl() : item.getName();
+                    Integer state = cacheStates.get(key);
+                    boolean completed = state != null && state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED;
+                    boolean busy = state != null && (state == androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING
+                            || state == androidx.media3.exoplayer.offline.Download.STATE_QUEUED || state == androidx.media3.exoplayer.offline.Download.STATE_RESTARTING);
+                    int label = completed ? com.fongmi.android.tv.R.string.offline_episode_cached : busy ? com.fongmi.android.tv.R.string.offline_downloading
+                            : state != null && state == androidx.media3.exoplayer.offline.Download.STATE_STOPPED ? com.fongmi.android.tv.R.string.offline_paused
+                            : state != null && state == androidx.media3.exoplayer.offline.Download.STATE_FAILED ? com.fongmi.android.tv.R.string.offline_failed
+                            : com.fongmi.android.tv.R.string.offline_episode_download;
+                    binding.episodeCache.setImageResource(completed ? com.fongmi.android.tv.R.drawable.offline_select
+                            : busy ? com.fongmi.android.tv.R.drawable.offline_sync : com.fongmi.android.tv.R.drawable.offline_download);
+                    android.content.res.ColorStateList color = completed ? android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#28865A"))
+                            : androidx.appcompat.content.res.AppCompatResources.getColorStateList(binding.getRoot().getContext(), com.fongmi.android.tv.R.color.selector_control);
+                    binding.episodeCache.setImageTintList(color);
+                    binding.episodeCacheArea.setSelected(item.isSelected());
+                    binding.episodeCacheArea.setContentDescription(binding.getRoot().getContext().getString(label) + " · " + item.getName());
+                    binding.episodeCacheArea.setOnClickListener(v -> {
+                        if (completed || busy) com.fongmi.android.tv.utils.Notify.show(item.getName() + " · " + binding.getRoot().getContext().getString(label));
+                        else cache.accept(item);
+                    });
+                    binding.episodeCacheArea.setEnabled(true);
+                    binding.episodeCache.setEnabled(true);
                 }
             };
         }

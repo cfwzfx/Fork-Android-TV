@@ -35,6 +35,7 @@ public final class OfflineCacheDialog extends DialogFragment {
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         OfflineCacheActivity.applyInsets(view);
+        view.findViewById(R.id.offline_settings_button).setVisibility(View.GONE);
         view.findViewById(R.id.offline_back).setOnClickListener(v -> dismiss());
         view.<android.widget.ImageButton>findViewById(R.id.offline_back).setImageResource(R.drawable.offline_close);
         view.findViewById(R.id.offline_back).setContentDescription(getString(R.string.offline_close));

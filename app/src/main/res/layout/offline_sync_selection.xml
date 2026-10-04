@@ -1,0 +1,17 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="16dp" android:background="@drawable/offline_card">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="@string/offline_sync_select" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/offline_text" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp"
+        android:text="@string/offline_sync_selection_hint" android:textSize="12sp" android:textColor="@color/offline_secondary" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="10dp">
+        <TextView android:id="@+id/offline_sync_count" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:textSize="13sp" android:textColor="@color/offline_accent" />
+        <TextView android:id="@+id/offline_sync_all_button" android:layout_width="wrap_content" android:layout_height="44dp" android:minWidth="64dp" android:gravity="center" android:paddingHorizontal="12dp" android:background="@drawable/offline_button_secondary" android:textColor="@color/offline_text" android:textSize="13sp" android:focusable="true" />
+    </LinearLayout>
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/offline_sync_list" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="12dp" android:clipToPadding="false" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:gravity="end">
+        <TextView android:id="@+id/offline_sync_cancel" android:layout_width="wrap_content" android:layout_height="44dp" android:minWidth="72dp" android:paddingHorizontal="16dp" android:gravity="center" android:text="@string/offline_cancel" android:background="@drawable/offline_button_secondary" android:textColor="@color/offline_text" android:focusable="true" />
+        <TextView android:id="@+id/offline_sync_confirm" android:layout_width="wrap_content" android:layout_height="44dp" android:layout_marginStart="8dp" android:paddingHorizontal="16dp" android:gravity="center" android:text="@string/offline_sync_device" android:background="@drawable/offline_button_primary" android:textColor="#101B23" android:textStyle="bold" android:focusable="true" />
+    </LinearLayout>
+</LinearLayout>

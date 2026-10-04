@@ -14,4 +14,18 @@
     <string name="offline_sync_error">Sync failed. Both phones need this version and must stay open on the same LAN. Check storage and source configuration, then retry.</string>
     <string name="offline_sync_receiving">Receiving cache: %1$s</string>
     <string name="offline_sync_received">Cache received: %1$s</string>
+    <string name="offline_sync_selection_hint">Select a movie folder or individual episodes. Only completed caches are listed.</string>
+    <string name="offline_sync_group_count">%1$d / %2$d selected · %3$s</string>
+    <string name="offline_sync_device_hint">Keep both devices on the same LAN and the receiving app open. Tap a device to send.</string>
+    <string name="offline_sync_device_summary">Selected %1$d episodes · %2$s</string>
+    <string name="offline_sync_device_count">Devices found: %1$d</string>
+    <string name="offline_sync_device_empty">No devices found yet.\nOpen the app on the receiving device, then search again.</string>
+    <string name="offline_sync_transferring">Transferring cache</string>
+    <string name="offline_sync_finished">Sync complete</string>
+    <string name="offline_sync_cancelled_heading">Sync cancelled</string>
+    <string name="offline_sync_failed_heading">Sync failed</string>
+    <string name="offline_sync_episode_progress">Episode %1$d of %2$d</string>
+    <string name="offline_sync_transfer_bytes">%1$d%% · %2$s / %3$s</string>
+    <string name="offline_sync_sent_count">Transferred %1$d episodes</string>
+    <string name="offline_sync_skipped_count">Skipped %1$d existing tasks</string>
 </resources>

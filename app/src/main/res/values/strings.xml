@@ -438,4 +438,13 @@
         <item>Select subtitle track</item>
     </string-array>
 
+    <string name="offline_multi_select">Select</string>
+    <string name="offline_select_all">Select all</string>
+    <string name="offline_deselect_all">Clear selection</string>
+    <string name="offline_selected_count">%1$d selected</string>
+    <string name="offline_delete_selected_question">Delete %1$d selected cache tasks and their downloaded files?</string>
+    <string name="offline_actions">Cache actions</string>
+    <string name="offline_verify_hint">Check downloaded files for completeness</string>
+    <string name="offline_recache_hint">Resolve this episode again and download it</string>
+    <string name="offline_delete_hint">Remove the task and its downloaded files</string>
 </resources>

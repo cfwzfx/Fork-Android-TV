@@ -34,6 +34,21 @@ public final class OfflineIntegration {
                 .setDefaultRequestProperties(new HashMap<>(headers)));
     }
 
+    /** Lightweight UI snapshot; matching uses the same show/line/episode identity as cache admission. */
+    public static java.util.Map<String, Integer> episodeStates(Context context, History show) throws java.io.IOException {
+        java.util.Map<String, Integer> states = new HashMap<>();
+        for (androidx.media3.exoplayer.offline.Download download : get(context).list()) {
+            try {
+                History original = OfflineHistory.original(OfflineVideo.decode(download.request.data));
+                if (original == null || !original.getKey().equals(show.getKey()) || !original.getVodFlag().equals(show.getVodFlag())) continue;
+                String key = original.getVodRemarks().trim().isEmpty() ? original.getEpisodeUrl() : original.getVodRemarks();
+                states.putIfAbsent(key, download.state);
+                if (download.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED) states.put(key, download.state);
+            } catch (RuntimeException ignored) { /* Invalid metadata cannot label an episode as cached. */ }
+        }
+        return states;
+    }
+
     public static void resume(Context context) {
         get(context).resumeService();
     }

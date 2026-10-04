@@ -1114,7 +1114,9 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onEpisodes() {
-        EpisodeListDialog.create().episodes(mEpisodeAdapter.getItems())
+        History snapshot = mHistory == null ? null : mHistory.copy();
+        if (snapshot != null && !mFlagAdapter.isEmpty()) snapshot.setVodFlag(mFlagAdapter.get(mFlagAdapter.getPosition()).getFlag());
+        EpisodeListDialog.create().episodes(mEpisodeAdapter.getItems()).cacheHistory(snapshot)
                 .cache(mOffline == null ? this::cacheEpisode : null).show(this);
     }
 

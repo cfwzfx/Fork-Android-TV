@@ -14,4 +14,18 @@
     <string name="offline_sync_error">同步失败。两台手机需使用支持此功能的版本，并保持应用打开、连接同一局域网；请检查剩余空间和源配置后重试。</string>
     <string name="offline_sync_receiving">正在接收缓存：%1$s</string>
     <string name="offline_sync_received">缓存接收完成：%1$s</string>
+    <string name="offline_sync_selection_hint">按影片选择整组，或展开选择集数；仅显示已完成的缓存。</string>
+    <string name="offline_sync_group_count">已选 %1$d / %2$d 集 · %3$s</string>
+    <string name="offline_sync_device_hint">两台设备需连接同一局域网，对方保持应用打开；点击设备开始同步。</string>
+    <string name="offline_sync_device_summary">待同步 %1$d 集 · %2$s</string>
+    <string name="offline_sync_device_count">已发现 %1$d 台设备</string>
+    <string name="offline_sync_device_empty">暂未发现设备\n请在对方设备打开应用后重新搜索</string>
+    <string name="offline_sync_transferring">正在同步缓存</string>
+    <string name="offline_sync_finished">同步完成</string>
+    <string name="offline_sync_cancelled_heading">同步已取消</string>
+    <string name="offline_sync_failed_heading">同步未完成</string>
+    <string name="offline_sync_episode_progress">当前第 %1$d / %2$d 集</string>
+    <string name="offline_sync_transfer_bytes">%1$d%% · %2$s / %3$s</string>
+    <string name="offline_sync_sent_count">成功同步 %1$d 集</string>
+    <string name="offline_sync_skipped_count">跳过已有任务 %1$d 集</string>
 </resources>

@@ -428,4 +428,13 @@
         <item>選擇字幕</item>
     </string-array>
 
+    <string name="offline_multi_select">多選</string>
+    <string name="offline_select_all">全選</string>
+    <string name="offline_deselect_all">取消全選</string>
+    <string name="offline_selected_count">已選 %1$d 項</string>
+    <string name="offline_delete_selected_question">刪除選取的 %1$d 個快取任務及已下載檔案？</string>
+    <string name="offline_actions">快取操作</string>
+    <string name="offline_verify_hint">檢查已下載檔案是否完整</string>
+    <string name="offline_recache_hint">重新取得連結並下載本集</string>
+    <string name="offline_delete_hint">刪除任務及其已下載檔案</string>
 </resources>

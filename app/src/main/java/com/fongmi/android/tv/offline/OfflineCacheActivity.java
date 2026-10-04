@@ -21,10 +21,26 @@ public final class OfflineCacheActivity extends AppCompatActivity {
         setContentView(R.layout.offline_cache);
         View root = findViewById(R.id.offline_root);
         applyInsets(root);
+        View back = findViewById(R.id.offline_back);
+        android.view.ViewGroup header = (android.view.ViewGroup) back.getParent();
+        header.removeView(back);
+        android.widget.LinearLayout.LayoutParams backParams = (android.widget.LinearLayout.LayoutParams) back.getLayoutParams();
+        backParams.setMarginStart(0);
+        backParams.setMarginEnd((int) (8 * getResources().getDisplayMetrics().density));
+        header.addView(back, 0, backParams);
         findViewById(R.id.offline_back).setOnClickListener(v -> finish());
         findViewById(R.id.offline_settings_button).setOnClickListener(v -> startActivity(new android.content.Intent(this, OfflineCacheSettingsActivity.class)));
         list = new OfflineCacheList(this, root);
+        list.restore(state);
+        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() { if (!list.cancelSelection()) finish(); }
+        });
         sync = OfflineSyncEntry.install(this, root);
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        list.save(state);
+        super.onSaveInstanceState(state);
     }
 
     static void applyInsets(View root) {

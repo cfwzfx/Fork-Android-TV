@@ -24,6 +24,38 @@ public class EpisodeListDialog extends BaseSideSheetDialog implements EpisodeAda
     private List<Episode> episodes;
     private java.util.function.Consumer<Episode> cache;
 
+    private com.fongmi.android.tv.bean.History cacheHistory;
+    private final android.os.Handler cacheHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable refreshCache = this::refreshCacheStates;
+
+    public EpisodeListDialog cacheHistory(com.fongmi.android.tv.bean.History history) {
+        cacheHistory = history == null ? null : history.copy();
+        return this;
+    }
+
+    private void refreshCacheStates() {
+        if (binding == null || cache == null || cacheHistory == null) return;
+        DialogEpisodeListBinding current = binding;
+        android.content.Context context = requireContext().getApplicationContext();
+        com.fongmi.android.tv.utils.Task.execute(() -> {
+            java.util.Map<String, Integer> states = null;
+            try { states = com.fongmi.android.tv.offline.OfflineIntegration.episodeStates(context, cacheHistory); }
+            catch (java.io.IOException ignored) {}
+            java.util.Map<String, Integer> result = states;
+            cacheHandler.post(() -> {
+                if (binding != current) return;
+                if (result != null) adapter.cacheStates(result);
+                cacheHandler.postDelayed(refreshCache, 1000);
+            });
+        });
+    }
+
+    @Override public void onDestroyView() {
+        cacheHandler.removeCallbacks(refreshCache);
+        binding = null;
+        super.onDestroyView();
+    }
+
     public EpisodeListDialog cache(java.util.function.Consumer<Episode> callback) {
         cache = callback;
         return this;
@@ -52,7 +84,7 @@ public class EpisodeListDialog extends BaseSideSheetDialog implements EpisodeAda
     protected int getWidth() {
         int minWidth = ResUtil.dp2px(200);
         int maxWidth = ResUtil.getScreenWidth() / 3;
-        for (Episode item : episodes) minWidth = Math.max(minWidth, ResUtil.getTextWidth(item.getName(), 14) + (cache == null ? 0 : ResUtil.dp2px(52)));
+        for (Episode item : episodes) minWidth = Math.max(minWidth, ResUtil.getTextWidth(item.getName(), 14) + (cache == null ? 0 : ResUtil.dp2px(44)));
         return Math.min(minWidth, maxWidth);
     }
 
@@ -61,6 +93,7 @@ public class EpisodeListDialog extends BaseSideSheetDialog implements EpisodeAda
         setRecyclerView();
         adapter.addAll(episodes);
         binding.recycler.scrollToPosition(adapter.getPosition());
+        refreshCacheStates();
     }
 
     private void setRecyclerView() {

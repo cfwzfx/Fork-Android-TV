@@ -1,0 +1,30 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+    android:padding="20dp" android:background="@drawable/offline_card">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+        <ImageView android:id="@+id/offline_sync_status_icon" android:layout_width="32dp" android:layout_height="32dp"
+            android:src="@drawable/offline_sync" android:tint="@color/offline_accent" android:importantForAccessibility="no" />
+        <TextView android:id="@+id/offline_sync_status_heading" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:layout_marginStart="12dp" android:textSize="18sp" android:textStyle="bold" android:textColor="@color/offline_text" />
+    </LinearLayout>
+    <TextView android:id="@+id/offline_sync_status_target" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:maxLines="2" android:ellipsize="end" android:textSize="12sp" android:textColor="@color/offline_secondary" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp"
+        android:orientation="vertical" android:padding="12dp" android:background="@drawable/offline_button_secondary">
+        <TextView android:id="@+id/offline_sync_status_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:maxLines="2" android:ellipsize="end" android:textSize="14sp" android:textStyle="bold" android:textColor="@color/offline_text" />
+        <TextView android:id="@+id/offline_sync_status_detail" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:textSize="13sp" android:textColor="@color/offline_secondary" />
+        <ProgressBar android:id="@+id/offline_sync_status_progress" style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent" android:layout_height="6dp" android:layout_marginTop="12dp"
+            android:progressTint="@color/offline_accent" android:progressBackgroundTint="@color/offline_border"
+            android:indeterminateTint="@color/offline_accent" android:max="100" />
+        <TextView android:id="@+id/offline_sync_status_bytes" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:textSize="12sp" android:textColor="@color/offline_accent" />
+    </LinearLayout>
+    <TextView android:id="@+id/offline_sync_status_message" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:visibility="gone" android:textSize="12sp" android:textColor="@color/offline_secondary" />
+    <TextView android:id="@+id/offline_sync_status_action" android:layout_width="wrap_content" android:layout_height="44dp"
+        android:layout_gravity="end" android:layout_marginTop="16dp" android:minWidth="80dp" android:paddingHorizontal="16dp"
+        android:gravity="center" android:background="@drawable/offline_button_secondary" android:textColor="@color/offline_text" android:focusable="true" />
+</LinearLayout>

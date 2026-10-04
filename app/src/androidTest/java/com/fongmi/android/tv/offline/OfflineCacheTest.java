@@ -662,9 +662,12 @@ public class OfflineCacheTest {
 
     @Test public void manualSyncSelectionListsOnlyCompletedAndRequiresASelection() throws Exception {
         org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
-        OfflineVideo ready = transferable("a/sample.mp4");
-        add(ready);
-        waitState(ready.id, Download.STATE_COMPLETED);
+        OfflineVideo ready = video("a/sample.mp4", "alpha");
+        OfflineVideo second = video("a/sample.mp4", "alpha");
+        OfflineVideo other = new OfflineVideo(UUID.randomUUID().toString(), "另一部影片", "第1集", "测试线路",
+                server.url("a/sample.mp4"), null, Map.of("Cookie", "alpha"));
+        ids.add(other.id);
+        for (OfflineVideo value : List.of(other, ready, second)) { add(value); waitState(value.id, Download.STATE_COMPLETED); }
         OfflineVideo paused = transferable("a/slow.mp4");
         add(paused);
         waitState(paused.id, Download.STATE_DOWNLOADING);
@@ -684,14 +687,162 @@ public class OfflineCacheTest {
             Thread.sleep(100);
         } while (System.currentTimeMillis() < end);
         assertNotNull(choice[0]);
+        Thread.sleep(300);
         main(() -> {
-            assertEquals(1, choice[0].getListView().getAdapter().getCount());
-            assertFalse(choice[0].getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled());
-            choice[0].getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL).performClick();
-            assertTrue(choice[0].getListView().isItemChecked(0));
-            assertTrue(choice[0].getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).isEnabled());
-            choice[0].getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE).performClick();
+            androidx.recyclerview.widget.RecyclerView list = choice[0].findViewById(R.id.offline_sync_list);
+            android.view.View confirm = choice[0].findViewById(R.id.offline_sync_confirm);
+            assertEquals("Two folders, three completed episodes; paused task excluded", 5, list.getAdapter().getItemCount());
+            assertFalse(confirm.isEnabled());
+            list.findViewHolderForAdapterPosition(0).itemView.findViewById(R.id.offline_checked).performClick();
+            assertEquals(context.getString(R.string.offline_selected_count, 2), ((android.widget.TextView) choice[0].findViewById(R.id.offline_sync_count)).getText().toString());
+            assertTrue(confirm.isEnabled());
         });
+        Thread.sleep(200);
+        main(() -> {
+            androidx.recyclerview.widget.RecyclerView list = choice[0].findViewById(R.id.offline_sync_list);
+            list.findViewHolderForAdapterPosition(0).itemView.performClick();
+            assertEquals("Folder collapses while keeping its selection", 3, list.getAdapter().getItemCount());
+            assertEquals(context.getString(R.string.offline_selected_count, 2), ((android.widget.TextView) choice[0].findViewById(R.id.offline_sync_count)).getText().toString());
+            choice[0].findViewById(R.id.offline_sync_all_button).performClick();
+            assertEquals(context.getString(R.string.offline_selected_count, 3), ((android.widget.TextView) choice[0].findViewById(R.id.offline_sync_count)).getText().toString());
+            choice[0].findViewById(R.id.offline_sync_all_button).performClick();
+            assertFalse(choice[0].findViewById(R.id.offline_sync_confirm).isEnabled());
+            choice[0].findViewById(R.id.offline_sync_cancel).performClick();
+        });
+        assertFalse(choice[0].isShowing());
+        assertEquals(Download.STATE_COMPLETED, cache.find(ready.id).state);
+        assertEquals(Download.STATE_STOPPED, cache.find(paused.id).state);
+
+        // Capture the actual handoff, including a selection retained inside a collapsed folder.
+        java.util.concurrent.atomic.AtomicReference<List<Download>> handedOff = new java.util.concurrent.atomic.AtomicReference<>();
+        java.lang.reflect.Method selection = Class.forName("com.fongmi.android.tv.offline.OfflineSyncSelection")
+                .getDeclaredMethod("show", android.app.Activity.class, List.class, java.util.function.Consumer.class);
+        selection.setAccessible(true);
+        main(() -> {
+            try { choice[0] = (androidx.appcompat.app.AlertDialog) selection.invoke(null, screen,
+                    List.of(cache.find(ready.id), cache.find(second.id), cache.find(other.id)),
+                    (java.util.function.Consumer<List<Download>>) handedOff::set); }
+            catch (Exception error) { throw new AssertionError(error); }
+        });
+        Thread.sleep(200);
+        main(() -> {
+            androidx.recyclerview.widget.RecyclerView list = choice[0].findViewById(R.id.offline_sync_list);
+            list.findViewHolderForAdapterPosition(1).itemView.performClick();
+        });
+        Thread.sleep(200);
+        main(() -> {
+            androidx.recyclerview.widget.RecyclerView list = choice[0].findViewById(R.id.offline_sync_list);
+            list.findViewHolderForAdapterPosition(0).itemView.performClick();
+            choice[0].findViewById(R.id.offline_sync_confirm).performClick();
+        });
+        assertNotNull(handedOff.get());
+        assertEquals(1, handedOff.get().size());
+        assertEquals(ready.id, handedOff.get().get(0).request.id);
+
+    }
+
+    @Test public void cachePromptsCancelConfirmAndShowInspectionResults() throws Exception {
+        AtomicInteger actions = new AtomicInteger();
+        main(() -> {
+            for (int action : new int[] {R.string.offline_delete, R.string.offline_recache}) {
+                androidx.appcompat.app.AlertDialog dialog = OfflineCachePrompt.show(screen, action,
+                        context.getString(action == R.string.offline_delete ? R.string.offline_delete_question
+                                : R.string.offline_recache_question, "测试影片 · 第01集"), action, actions::incrementAndGet);
+                assertTrue(dialog.isShowing());
+                dialog.findViewById(android.R.id.button2).performClick();
+                assertFalse(dialog.isShowing());
+                assertEquals(0, actions.get());
+            }
+            androidx.appcompat.app.AlertDialog dialog = OfflineCachePrompt.show(screen, R.string.offline_delete,
+                    context.getString(R.string.offline_delete_selected_question, 2), R.string.offline_delete, actions::incrementAndGet);
+            dialog.findViewById(android.R.id.button1).performClick();
+            assertFalse(dialog.isShowing());
+            assertEquals(1, actions.get());
+            for (int message : new int[] {R.string.offline_verified, R.string.offline_integrity_error}) {
+                dialog = OfflineCachePrompt.show(screen, R.string.offline_verify, context.getString(message), android.R.string.ok, null);
+                assertFalse(dialog.findViewById(android.R.id.button2).isShown());
+                dialog.findViewById(android.R.id.button1).performClick();
+                assertFalse(dialog.isShowing());
+                assertEquals(1, actions.get());
+            }
+        });
+    }
+
+    @Test public void syncStatusShowsProgressAndAllResultsWithoutChangingTransfers() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        Class<?> type = Class.forName("com.fongmi.android.tv.offline.OfflineSyncStatus");
+        java.lang.reflect.Constructor<?> constructor = type.getDeclaredConstructor(android.app.Activity.class,
+                com.fongmi.android.tv.bean.Device.class, int.class, Runnable.class);
+        java.lang.reflect.Field dialogField = type.getDeclaredField("dialog");
+        java.lang.reflect.Method progress = type.getDeclaredMethod("progress", String.class, int.class, int.class, long.class, long.class);
+        java.lang.reflect.Method result = type.getDeclaredMethod("result", android.app.Activity.class,
+                com.fongmi.android.tv.bean.Device.class, int.class, int.class, String.class);
+        constructor.setAccessible(true); dialogField.setAccessible(true); progress.setAccessible(true); result.setAccessible(true);
+        com.fongmi.android.tv.bean.Device target = new com.fongmi.android.tv.bean.Device();
+        target.setName("测试接收设备");
+        AtomicInteger cancelled = new AtomicInteger();
+        main(() -> {
+            try {
+                Object status = constructor.newInstance(screen, target, 3, (Runnable) cancelled::incrementAndGet);
+                androidx.appcompat.app.AlertDialog dialog = (androidx.appcompat.app.AlertDialog) dialogField.get(status);
+                android.widget.ProgressBar bar = dialog.findViewById(R.id.offline_sync_status_progress);
+                assertTrue(bar.isIndeterminate());
+                progress.invoke(status, "第2集", 2, 3, 50L, 100L);
+                assertFalse(bar.isIndeterminate());
+                assertEquals(50, bar.getProgress());
+                assertEquals("第2集", ((android.widget.TextView) dialog.findViewById(R.id.offline_sync_status_title)).getText().toString());
+                assertEquals(context.getString(R.string.offline_sync_episode_progress, 2, 3),
+                        ((android.widget.TextView) dialog.findViewById(R.id.offline_sync_status_detail)).getText().toString());
+                progress.invoke(status, "第3集", 3, 3, 0L, 0L);
+                assertTrue(bar.isIndeterminate());
+                dialog.findViewById(R.id.offline_sync_status_action).performClick();
+                assertEquals(1, cancelled.get());
+                assertFalse(dialog.isShowing());
+                for (String error : new String[] {null, "cancelled", "network"}) {
+                    dialog = (androidx.appcompat.app.AlertDialog) result.invoke(null, screen, target, 1, 2, error);
+                    assertEquals(context.getString(R.string.offline_sync_sent_count, 1),
+                            ((android.widget.TextView) dialog.findViewById(R.id.offline_sync_status_title)).getText().toString());
+                    assertEquals(context.getString(R.string.offline_sync_skipped_count, 2),
+                            ((android.widget.TextView) dialog.findViewById(R.id.offline_sync_status_detail)).getText().toString());
+                    assertEquals(android.view.View.GONE, dialog.findViewById(R.id.offline_sync_status_progress).getVisibility());
+                    assertEquals(error == null ? android.view.View.GONE : android.view.View.VISIBLE,
+                            dialog.findViewById(R.id.offline_sync_status_message).getVisibility());
+                    int heading = error == null ? R.string.offline_sync_finished : error.equals("cancelled")
+                            ? R.string.offline_sync_cancelled_heading : R.string.offline_sync_failed_heading;
+                    assertEquals(context.getString(heading), ((android.widget.TextView) dialog.findViewById(R.id.offline_sync_status_heading)).getText().toString());
+                    dialog.findViewById(R.id.offline_sync_status_action).performClick();
+                    assertFalse(dialog.isShowing());
+                }
+            } catch (Exception error) { throw new AssertionError(error); }
+        });
+    }
+
+    @Test public void episodeSelectionStatesMatchSourceLineAndNameDespiteUrlChanges() throws Exception {
+        OfflineVideo ready = transferable("a/sample.mp4");
+        add(ready);
+        waitState(ready.id, Download.STATE_COMPLETED);
+        com.fongmi.android.tv.bean.History show = OfflineHistory.original(ready).copy();
+        com.fongmi.android.tv.bean.History another = show.copy();
+        another.setVodRemarks("另一集");
+        another.setEpisodeUrl("https://episode.test/" + UUID.randomUUID());
+        OfflineVideo pending = new OfflineVideo(OfflineVideo.identity(another), ready.title, another.getVodRemarks(), ready.line,
+                server.url("a/slow.mp4"), null, Map.of("Cookie", "alpha"), another.toString(), "[]", "{\"parse\":0}");
+        ids.add(pending.id);
+        add(pending);
+        waitState(pending.id, Download.STATE_DOWNLOADING);
+        main(() -> cache.pause(pending.id));
+        waitState(pending.id, Download.STATE_STOPPED);
+        show.setEpisodeUrl("https://episode.test/rotated-link");
+        Map<String, Integer> states = OfflineIntegration.episodeStates(context, show);
+        assertEquals(Integer.valueOf(Download.STATE_COMPLETED), states.get(ready.episode));
+        assertEquals(Integer.valueOf(Download.STATE_STOPPED), states.get("另一集"));
+        assertEquals(2, states.size());
+        com.fongmi.android.tv.bean.History different = show.copy();
+        different.setVodFlag("不同线路");
+        assertTrue(OfflineIntegration.episodeStates(context, different).isEmpty());
+        different = show.copy();
+        different.cid(show.getCid() + 10000);
+        assertTrue(OfflineIntegration.episodeStates(context, different).isEmpty());
     }
 
     @Before
@@ -802,6 +953,71 @@ public class OfflineCacheTest {
     }
 
     @Test
+    public void multiSelectDeletesOnlyConfirmedTasksAndKeepsCollapsedSelections() throws Exception {
+        OfflineVideo complete = video("a/sample.mp4", "alpha"); add(complete); waitState(complete.id, Download.STATE_COMPLETED);
+        OfflineVideo paused = video("a/slow.mp4", "alpha"); add(paused); waitState(paused.id, Download.STATE_DOWNLOADING);
+        main(() -> cache.pause(paused.id)); waitState(paused.id, Download.STATE_STOPPED);
+        OfflineVideo kept = new OfflineVideo(UUID.randomUUID().toString(), "保留剧集", "第1集", "测试线路",
+                server.url("b/sample.mp4"), null, Map.of("Cookie", "beta"));
+        ids.add(kept.id); add(kept); waitState(kept.id, Download.STATE_COMPLETED);
+        boolean[] ready = {false}; long end = System.currentTimeMillis() + 10000;
+        do {
+            main(() -> ready[0] = ((androidx.recyclerview.widget.RecyclerView) screen.findViewById(R.id.offline_list)).getChildCount() == 2);
+            if (!ready[0]) Thread.sleep(100);
+        } while (!ready[0] && System.currentTimeMillis() < end);
+        assertTrue(ready[0]);
+        main(() -> {
+            android.view.View back = screen.findViewById(R.id.offline_back);
+            assertEquals(back, ((android.view.ViewGroup) back.getParent()).getChildAt(0));
+            screen.findViewById(R.id.offline_select).performClick();
+            assertFalse(screen.findViewById(R.id.offline_delete_selected).isEnabled());
+            screen.findViewById(R.id.offline_select_all).performClick();
+            assertEquals(context.getString(R.string.offline_selected_count, 3),
+                    ((android.widget.TextView) screen.findViewById(R.id.offline_selection_count)).getText().toString());
+            screen.findViewById(R.id.offline_select_all).performClick();
+            androidx.recyclerview.widget.RecyclerView list = screen.findViewById(R.id.offline_list);
+            for (int i = 0; i < list.getChildCount(); i++) {
+                android.view.View row = list.getChildAt(i);
+                if (((android.widget.TextView) row.findViewById(R.id.offline_group_name)).getText().toString().equals("离线测试"))
+                    row.findViewById(R.id.offline_checked).performClick();
+            }
+        });
+        Thread.sleep(1200);
+        main(() -> {
+            assertEquals(context.getString(R.string.offline_selected_count, 2),
+                    ((android.widget.TextView) screen.findViewById(R.id.offline_selection_count)).getText().toString());
+            screen.findViewById(R.id.offline_delete_selected).performClick();
+        });
+        clickCacheSelectionDialog(false);
+        assertNotNull(cache.find(complete.id)); assertNotNull(cache.find(paused.id));
+        main(() -> screen.findViewById(R.id.offline_delete_selected).performClick());
+        clickCacheSelectionDialog(true);
+        end = System.currentTimeMillis() + 10000;
+        while ((cache.find(complete.id) != null || cache.find(paused.id) != null) && System.currentTimeMillis() < end) Thread.sleep(100);
+        assertNull(cache.find(complete.id)); assertNull(cache.find(paused.id));
+        assertEquals(Download.STATE_COMPLETED, cache.find(kept.id).state);
+        main(() -> assertEquals(android.view.View.GONE, screen.findViewById(R.id.offline_selection_bar).getVisibility()));
+    }
+
+    private void clickCacheSelectionDialog(boolean confirm) throws Exception {
+        android.app.UiAutomation automation = InstrumentationRegistry.getInstrumentation().getUiAutomation();
+        var info = automation.getServiceInfo();
+        info.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                | android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+        automation.setServiceInfo(info);
+        long end = System.currentTimeMillis() + 5000;
+        do {
+            for (var window : automation.getWindows()) {
+                var root = window.getRoot(); if (root == null) continue;
+                for (var button : root.findAccessibilityNodeInfosByViewId(confirm ? "android:id/button1" : "android:id/button2"))
+                    if (button.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)) return;
+            }
+            Thread.sleep(100);
+        } while (System.currentTimeMillis() < end);
+        fail("Cache deletion confirmation was not available");
+    }
+
+    @Test
     public void sidePanelShowsCompletedAndPausedTasksAndDeletesFromTheList() throws Exception {
         OfflineVideo completed = video("a/sample.mp4", "alpha");
         add(completed);
@@ -834,6 +1050,10 @@ public class OfflineCacheTest {
             host.getSupportFragmentManager().executePendingTransactions();
             panel[0] = (OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel");
             assertNotNull(panel[0]);
+            assertEquals(android.view.View.GONE, panel[0].requireView().findViewById(R.id.offline_settings_button).getVisibility());
+            android.view.View back = panel[0].requireView().findViewById(R.id.offline_back);
+            android.view.ViewGroup header = (android.view.ViewGroup) back.getParent();
+            assertEquals(back, header.getChildAt(header.getChildCount() - 1));
         });
         boolean[] populated = {false};
         long deadline = System.currentTimeMillis() + 10000;
@@ -1719,6 +1939,28 @@ public class OfflineCacheTest {
     }
 
     @Test
+    public void largeFrontMp4HeaderIsCacheableAndPlaysOffline() throws Exception {
+        OfflineVideo video = video("a/large-header.mp4", "alpha");
+        add(video);
+        Download download = waitState(video.id, Download.STATE_COMPLETED);
+        server.blocked = true;
+        playOffline(download, true);
+    }
+
+    @Test
+    public void oversizedHeaderStopsProbeWithoutClaimingTheVideoExpired() throws Exception {
+        OfflineVideo video = video("a/oversized-header.mp4", "alpha");
+        CountDownLatch prepared = new CountDownLatch(1);
+        AtomicInteger message = new AtomicInteger();
+        main(() -> cache.add(video, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, result -> {
+            if (result != R.string.offline_preparing) { message.set(result); prepared.countDown(); }
+        }));
+        assertTrue(prepared.await(50, TimeUnit.SECONDS));
+        assertEquals(R.string.offline_prepare_error, message.get());
+        assertNull(cache.find(video.id));
+    }
+
+    @Test
     public void expiredHtmlWithHttp200IsRejectedBeforeAddingTask() throws Exception {
         OfflineVideo video = video("a/expired.m3u8", "alpha");
         CountDownLatch prepared = new CountDownLatch(1);
@@ -1982,6 +2224,63 @@ public class OfflineCacheTest {
         }
     }
 
+    @Test public void cachedOnlineEpisodeInitializesSpiderCloudEntryWithoutStartingItsVideo() throws Exception {
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        OfflineVideo video = new OfflineVideo(UUID.randomUUID().toString(), history.getVodName(), history.getVodRemarks(),
+                history.getVodFlag(), server.url("a/sample.mp4"), null, Map.of("Cookie", "alpha"), history.toString(), "[]");
+        ids.add(video.id); add(video); waitState(video.id, Download.STATE_COMPLETED);
+        com.fongmi.android.tv.api.config.VodConfig config = com.fongmi.android.tv.api.config.VodConfig.get();
+        java.lang.reflect.Field sites = config.getClass().getDeclaredField("sites"), parses = config.getClass().getDeclaredField("parses");
+        sites.setAccessible(true); parses.setAccessible(true);
+        Object oldSites = sites.get(config), oldParses = parses.get(config);
+        CountDownLatch metadata = new CountDownLatch(1);
+        com.github.catvod.crawler.Spider spider = new com.github.catvod.crawler.Spider() {
+            @Override public String playerContent(String flag, String id, List<String> flags) {
+                assertEquals(history.getVodFlag(), flag);
+                assertEquals(history.getEpisodeUrl(), id);
+                com.fongmi.android.tv.bean.Parse cloud = com.fongmi.android.tv.bean.Parse.get(1, server.url("cloud?url="));
+                cloud.setName("弹幕云搜");
+                try { parses.set(config, new ArrayList<>(List.of(cloud))); } catch (Exception error) { throw new AssertionError(error); }
+                metadata.countDown();
+                // This media is deliberately unavailable. The cached player must never try to open it.
+                return "{\"parse\":0,\"url\":\"" + server.url("must-not-play.mp4") + "\"}";
+            }
+        };
+        com.fongmi.android.tv.bean.Site site = new com.fongmi.android.tv.bean.Site() {
+            @Override public String getKey() { return history.getSiteKey(); }
+            @Override public Integer getType() { return 3; }
+            @Override public com.github.catvod.crawler.Spider spider() { return spider; }
+            @Override public com.fongmi.android.tv.bean.Site recent() { return this; }
+        };
+        sites.set(config, new ArrayList<>(List.of(site))); parses.set(config, new ArrayList<>());
+        com.fongmi.android.tv.player.PlayerManager[] players = new com.fongmi.android.tv.player.PlayerManager[1];
+        CachedVodPlayback[] cached = new CachedVodPlayback[1];
+        int requests = server.requests.get(); server.blocked = true;
+        try {
+            main(() -> {
+                com.fongmi.android.tv.player.PlayerManager.Callback callback =
+                        (com.fongmi.android.tv.player.PlayerManager.Callback) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                                new Class[]{com.fongmi.android.tv.player.PlayerManager.Callback.class}, (proxy, method, args) -> null);
+                players[0] = new com.fongmi.android.tv.player.PlayerManager(callback);
+                cached[0] = new CachedVodPlayback((androidx.fragment.app.FragmentActivity) screen);
+                cached[0].start(history, players[0], 0, androidx.media3.common.MediaMetadata.EMPTY, history.getKey(), () -> true,
+                        found -> assertTrue("Completed cache must remain the media source", found));
+            });
+            assertTrue("Cache-first entry must still run the spider's dynamic entry initialization", metadata.await(10, TimeUnit.SECONDS));
+            assertTrue(config.getParses().stream().anyMatch(item -> item.getName().equals("弹幕云搜")));
+            AtomicInteger state = new AtomicInteger();
+            long end = System.currentTimeMillis() + 10000;
+            do { main(() -> state.set(players[0].getPlayer().getPlaybackState())); if (state.get() == Player.STATE_READY) break; Thread.sleep(100); }
+            while (System.currentTimeMillis() < end);
+            assertEquals(Player.STATE_READY, state.get());
+            main(() -> assertTrue(players[0].isOffline()));
+            assertEquals("Metadata initialization cannot fetch the returned video", requests, server.requests.get());
+        } finally {
+            main(() -> { if (cached[0] != null) cached[0].close(); if (players[0] != null) players[0].release(); });
+            sites.set(config, oldSites); parses.set(config, oldParses);
+        }
+    }
+
     @Test
     public void differentQualityIdentitiesCannotDownloadTheSameCompletedEpisodeAgain() throws Exception {
         com.fongmi.android.tv.bean.History history = independentHistory();
@@ -2054,6 +2353,32 @@ public class OfflineCacheTest {
         assertEquals(R.string.offline_exists, second.get());
         assertEquals(requests, server.requests.get());
         assertNull(cache.find(duplicate.id));
+    }
+
+    @Test public void eachEpisodeRequestNotifiesPreparingOnceAcrossAllStages() throws Exception {
+        List<OfflineVideo> videos = List.of(transferable("a/sample.mp4"), transferable("a/sample.mp4"));
+        CountDownLatch finished = new CountDownLatch(2);
+        AtomicInteger[] preparing = {new AtomicInteger(), new AtomicInteger()};
+        AtomicInteger[] outcomes = {new AtomicInteger(), new AtomicInteger()};
+        main(() -> {
+            for (int i = 0; i < videos.size(); i++) {
+                int index = i; OfflineVideo video = videos.get(i);
+                cache.requestEpisode(OfflineHistory.original(video), ready -> {
+                    // The resolver reports progress before the download probe reports progress.
+                    ready.complete(R.string.offline_preparing);
+                    cache.add(video, DownloadHelper.DEFAULT_TRACK_SELECTOR_PARAMETERS, ready);
+                }, message -> {
+                    if (message == R.string.offline_preparing) preparing[index].incrementAndGet();
+                    else { outcomes[index].set(message); finished.countDown(); }
+                });
+            }
+        });
+        assertTrue(finished.await(15, TimeUnit.SECONDS));
+        for (int i = 0; i < videos.size(); i++) {
+            assertEquals("One preparing message per click, independent of other episodes", 1, preparing[i].get());
+            assertEquals(R.string.offline_added, outcomes[i].get());
+            waitState(videos.get(i).id, Download.STATE_COMPLETED);
+        }
     }
 
     @Test
@@ -2148,9 +2473,10 @@ public class OfflineCacheTest {
                 if (file.equals("hls/getM3u8")) file = "hls/master.m3u8";
                 boolean slowSubtitle = file.equals("slow-subtitle.vtt");
                 boolean slow = file.equals("slow.mp4") || slowSubtitle, capped = file.equals("capped.mp4") || file.equals("badrange.mp4");
+                boolean largeHeader = file.equals("large-header.mp4") || file.equals("oversized-header.mp4");
                 boolean numbered = file.matches("episode-[0-9]+\\.mp4");
                 byte[] data;
-                try (InputStream asset = assets.getAssets().open("offline/" + (slowSubtitle ? "hls/en.vtt" : slow || capped || numbered ? "sample.mp4" : file))) {
+                try (InputStream asset = assets.getAssets().open("offline/" + (slowSubtitle ? "hls/en.vtt" : slow || capped || numbered || largeHeader ? "sample.mp4" : file))) {
                     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
                     byte[] chunk = new byte[8192];
                     for (int count; (count = asset.read(chunk)) >= 0;) buffer.write(chunk, 0, count);
@@ -2166,6 +2492,7 @@ public class OfflineCacheTest {
                         buffer.write(new byte[2097152 - 8]);
                     }
                     data = buffer.toByteArray();
+                    if (largeHeader) data = enlargeFrontMoov(data, file.equals("oversized-header.mp4") ? 16777216 : 2621440);
                 }
                 int offset = range.isEmpty() ? 0 : Integer.parseInt(range.substring(6).split("-")[0]);
                 if (file.equals("badrange.mp4")) offset = 0;
@@ -2185,6 +2512,39 @@ public class OfflineCacheTest {
                     if (slow) Thread.sleep(25);
                 }
             } catch (Exception ignored) { /* Player cancellation closes sockets. */ }
+        }
+
+        private static byte[] enlargeFrontMoov(byte[] original, int padding) {
+            // Insert a valid free box as the first moov child, and move chunk offsets.
+            java.nio.ByteBuffer source = java.nio.ByteBuffer.wrap(original);
+            int moov = source.getInt(0); // This fixture starts with ftyp, then moov.
+            int moovSize = source.getInt(moov);
+            byte[] expanded = new byte[original.length + padding];
+            System.arraycopy(original, 0, expanded, 0, moov + 8);
+            System.arraycopy(original, moov + 8, expanded, moov + 8 + padding, original.length - moov - 8);
+            java.nio.ByteBuffer target = java.nio.ByteBuffer.wrap(expanded);
+            target.putInt(moov, moovSize + padding);
+            target.putInt(moov + 8, padding);
+            target.putInt(moov + 12, 0x66726565); // free
+            moveChunkOffsets(target, moov + 8 + padding, moov + moovSize + padding, padding);
+            return expanded;
+        }
+
+        private static void moveChunkOffsets(java.nio.ByteBuffer data, int start, int end, int delta) {
+            for (int at = start; at < end;) {
+                int size = data.getInt(at), type = data.getInt(at + 4);
+                if (size < 8 || at + size > end) throw new IllegalArgumentException("Invalid fixture box");
+                if (type == 0x7374636f) { // stco
+                    int count = data.getInt(at + 12);
+                    for (int i = 0; i < count; i++) {
+                        int offset = at + 16 + i * 4;
+                        data.putInt(offset, data.getInt(offset) + delta);
+                    }
+                } else if (type == 0x7472616b || type == 0x6d646961 || type == 0x6d696e66 || type == 0x7374626c) {
+                    moveChunkOffsets(data, at + 8, at + size, delta);
+                }
+                at += size;
+            }
         }
 
         @Override

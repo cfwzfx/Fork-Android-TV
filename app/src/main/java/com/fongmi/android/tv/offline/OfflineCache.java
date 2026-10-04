@@ -287,11 +287,13 @@ public final class OfflineCache {
         }
         Object token = new Object();
         admission.put(key, token);
+        java.util.concurrent.atomic.AtomicBoolean preparingShown = new java.util.concurrent.atomic.AtomicBoolean();
         Callback finish = message -> {
+            if (message == com.fongmi.android.tv.R.string.offline_preparing && !preparingShown.compareAndSet(false, true)) return;
             if (message != com.fongmi.android.tv.R.string.offline_preparing) admission.remove(key, token);
             callback.complete(message);
         };
-        callback.complete(com.fongmi.android.tv.R.string.offline_preparing);
+        finish.complete(com.fongmi.android.tv.R.string.offline_preparing);
         com.fongmi.android.tv.utils.Task.execute(() -> {
             try {
                 Download existing = existingEpisode(key, null);

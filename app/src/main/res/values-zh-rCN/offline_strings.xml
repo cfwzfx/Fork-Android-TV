@@ -45,4 +45,6 @@
     <string name="offline_resolve_error">未能解析本集缓存地址，请检查视频源后重试</string>
     <string name="offline_already_cached">本集已缓存，无需重复缓存</string>
     <string name="offline_subtitle_error">部分外置字幕未能保存，视频缓存仍会继续；请检查字幕来源或重新导入字幕。</string>
+    <string name="offline_episode_cached">已缓存</string>
+    <string name="offline_episode_download">下载</string>
 </resources>

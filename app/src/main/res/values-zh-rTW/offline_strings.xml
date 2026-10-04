@@ -45,4 +45,6 @@
     <string name="offline_resolve_error">未能解析本集快取網址，請檢查影片來源後重試</string>
     <string name="offline_already_cached">本集已快取，無需重複快取</string>
     <string name="offline_subtitle_error">部分外掛字幕未能儲存，影片快取仍會繼續；請檢查字幕來源或重新匯入字幕。</string>
+    <string name="offline_episode_cached">已快取</string>
+    <string name="offline_episode_download">下載</string>
 </resources>

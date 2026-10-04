@@ -28,6 +28,7 @@ public final class CachedVodPlayback {
     private final ExecutorService reader = Executors.newSingleThreadExecutor();
     private int generation;
     private boolean closed;
+    private java.util.concurrent.Future<?> parserMetadata;
 
     public CachedVodPlayback(FragmentActivity activity) {
         this.activity = activity;
@@ -37,7 +38,8 @@ public final class CachedVodPlayback {
     public void start(History requested, PlayerManager players, long position, MediaMetadata metadata,
                       String key, BooleanSupplier valid, Consumer<Boolean> ready) {
         History history = requested.copy();
-        int token = ++generation;
+        cancel();
+        int token = generation;
         reader.execute(() -> {
             Download match;
             try { match = cache.completedFor(history); }
@@ -63,12 +65,40 @@ public final class CachedVodPlayback {
                     players.startOffline(OfflineSubtitles.attach(activity, video.id, download.request.toMediaItem()).buildUpon().setMediaMetadata(metadata).setMediaId(key).build(),
                             new DefaultMediaSourceFactory(new androidx.media3.datasource.DefaultDataSource.Factory(activity, cache.playback(download))),
                             comments, item -> saved.edit().putString("danmaku:" + video.id, App.gson().toJson(players.getDanmakus())).apply(), position);
+                    restoreDynamicParsers(history, players, token, valid);
                 } catch (RuntimeException error) { ready.accept(false); }
             });
         });
     }
 
-    public void cancel() { generation++; }
+    /** Some spiders register their dynamic parser buttons only in playerContent. */
+    private void restoreDynamicParsers(History history, PlayerManager players, int token, BooleanSupplier valid) {
+        com.fongmi.android.tv.api.config.VodConfig config = com.fongmi.android.tv.api.config.VodConfig.get();
+        config.restoreParses();
+        if (config.getParses().stream().anyMatch(com.fongmi.android.tv.bean.Parse::isDanmaku)) return;
+        com.fongmi.android.tv.bean.Site site = config.getSite(history.getSiteKey());
+        if (site.getType() != 3 && site.getType() != 4) return;
+        parserMetadata = com.fongmi.android.tv.utils.Task.submit(() -> {
+            try {
+                // Fetch provider metadata only. Never invoke the shared playback extractor or start this URL.
+                Result source = com.fongmi.android.tv.api.SiteApi.playerContent(history.getSiteKey(), history.getVodFlag(), history.getEpisodeUrl(),
+                        new com.fongmi.android.tv.player.extractor.Source() {
+                            @Override public String fetch(Result result) { return result.getUrl().v(); }
+                        });
+                activity.runOnUiThread(() -> {
+                    if (closed || token != generation || activity.isDestroyed() || !valid.getAsBoolean() || !players.isOffline()) return;
+                    players.setSourceResult(source);
+                    if (activity instanceof com.fongmi.android.tv.playback.vod.VodPlaybackHost host) host.renderUseParse(false);
+                });
+            } catch (Exception ignored) { /* Metadata availability must never interrupt cached playback. */ }
+        });
+    }
+
+    public void cancel() {
+        generation++;
+        if (parserMetadata != null) parserMetadata.cancel(true);
+        parserMetadata = null;
+    }
 
     public void close() {
         closed = true;

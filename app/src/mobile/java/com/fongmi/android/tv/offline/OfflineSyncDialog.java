@@ -3,8 +3,6 @@ package com.fongmi.android.tv.offline;
 import android.app.Activity;
 import android.text.format.Formatter;
 import android.widget.ArrayAdapter;
-import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
@@ -50,55 +48,65 @@ final class OfflineSyncDialog implements Closeable {
     }
 
     private void select(List<Download> completed) {
-        String[] names = new String[completed.size()];
-        boolean[] checked = new boolean[completed.size()];
-        for (int i = 0; i < names.length; i++) {
-            OfflineVideo video = OfflineVideo.decode(completed.get(i).request.data);
-            names[i] = video.title + " · " + video.episode + " · " + video.line + "\n"
-                    + Formatter.formatFileSize(activity, completed.get(i).getBytesDownloaded());
-        }
-        dialog = new AlertDialog.Builder(activity).setTitle(R.string.offline_sync_select)
-                .setMultiChoiceItems(names, checked, (choice, index, enabled) -> {
-                    checked[index] = enabled;
-                    ((AlertDialog) choice).getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(any(checked));
-                }).setNegativeButton(R.string.offline_cancel, null).setNeutralButton(R.string.offline_sync_all, null)
-                .setPositiveButton(R.string.offline_sync_device, (choice, index) -> {
-                    List<Download> selected = new ArrayList<>();
-                    for (int i = 0; i < checked.length; i++) if (checked[i]) selected.add(completed.get(i));
-                    devices(selected);
-                }).create();
-        dialog.setOnShowListener(ignored -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
-                boolean all = !all(checked);
-                for (int i = 0; i < checked.length; i++) { checked[i] = all; dialog.getListView().setItemChecked(i, all); }
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(all);
-            });
-        });
-        dialog.show();
+        dialog = OfflineSyncSelection.show(activity, completed, this::devices);
     }
 
     private void devices(List<Download> selected) {
-        List<Device> found = new ArrayList<>();
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(activity, android.R.layout.simple_list_item_1);
-        java.util.function.Consumer<Device> add = device -> {
-            if (!alive() || !device.isMobile() || device.getUuid().equals(Device.get().getUuid())) return;
-            try { OfflineLan.endpoint(device.getIp()); } catch (Exception ignored) { return; }
-            int index = found.indexOf(device);
-            if (index >= 0) found.set(index, device);
-            else found.add(device);
-            adapter.clear();
-            for (Device value : found) adapter.add(value.getName() + "\n" + value.getIp());
-            adapter.notifyDataSetChanged();
+        android.view.View content = android.view.LayoutInflater.from(activity).inflate(R.layout.offline_sync_devices, null);
+        android.widget.ListView list = content.findViewById(R.id.offline_sync_devices);
+        TextView status = content.findViewById(R.id.offline_sync_found);
+        long bytes = 0;
+        for (Download value : selected) bytes += value.getBytesDownloaded();
+        ((TextView) content.findViewById(R.id.offline_sync_device_summary)).setText(activity.getString(
+                R.string.offline_sync_device_summary, selected.size(), Formatter.formatFileSize(activity, bytes)));
+        ArrayAdapter<Device> adapter = new ArrayAdapter<Device>(activity, R.layout.offline_sync_device_row) {
+            @Override public android.view.View getView(int position, android.view.View recycled, android.view.ViewGroup parent) {
+                android.view.View row = recycled == null ? android.view.LayoutInflater.from(activity)
+                        .inflate(R.layout.offline_sync_device_row, parent, false) : recycled;
+                Device device = getItem(position);
+                ((TextView) row.findViewById(R.id.offline_sync_device_name)).setText(device.getName());
+                ((TextView) row.findViewById(R.id.offline_sync_device_address)).setText(device.getIp());
+                return row;
+            }
         };
-        dialog = new AlertDialog.Builder(activity).setTitle(R.string.offline_sync_search)
-                .setAdapter(adapter, (choice, index) -> start(found.get(index), selected))
-                .setNegativeButton(R.string.offline_cancel, null).setNeutralButton(R.string.offline_sync_refresh, null).create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
-            adapter.clear(); found.clear(); scan(add);
-        }));
-        dialog.setOnDismissListener(ignored -> { if (scanner != null) { scanner.stop(); scanner = null; } });
-        dialog.show();
+        list.setAdapter(adapter);
+        list.setEmptyView(content.findViewById(R.id.offline_sync_device_empty));
+        // Bound only the list, leaving the heading and actions visible on small screens.
+        Runnable update = () -> {
+            status.setText(activity.getString(R.string.offline_sync_device_count, adapter.getCount()));
+            android.view.ViewGroup.LayoutParams params = list.getLayoutParams();
+            int rowHeight = Math.round(88 * activity.getResources().getDisplayMetrics().density);
+            params.height = Math.min(rowHeight * adapter.getCount(), activity.getResources().getDisplayMetrics().heightPixels / 3);
+            list.setLayoutParams(params);
+        };
+        AlertDialog current = new AlertDialog.Builder(activity).setView(content).create();
+        dialog = current;
+        java.util.function.Consumer<Device> add = device -> {
+            if (!alive() || !current.isShowing() || !device.isMobile() || device.getUuid().equals(Device.get().getUuid())) return;
+            try { OfflineLan.endpoint(device.getIp()); } catch (Exception ignored) { return; }
+            for (int i = 0; i < adapter.getCount(); i++) {
+                if (adapter.getItem(i).equals(device)) { adapter.remove(adapter.getItem(i)); adapter.insert(device, i); update.run(); return; }
+            }
+            adapter.add(device);
+            update.run();
+        };
+        list.setOnItemClickListener((parent, row, index, id) -> {
+            Device target = adapter.getItem(index);
+            current.dismiss();
+            start(target, selected);
+        });
+        content.findViewById(R.id.offline_sync_device_cancel).setOnClickListener(v -> current.dismiss());
+        content.findViewById(R.id.offline_sync_device_refresh).setOnClickListener(v -> {
+            adapter.clear(); update.run(); scan(add);
+        });
+        current.setOnDismissListener(ignored -> { if (scanner != null) { scanner.stop(); scanner = null; } });
+        update.run();
+        current.show();
+        if (current.getWindow() != null) {
+            current.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+            current.getWindow().setLayout(Math.min(Math.round(460 * activity.getResources().getDisplayMetrics().density),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.92f)), android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
         for (Device device : Device.getAll()) add.accept(device);
         scan(add);
     }
@@ -110,44 +118,23 @@ final class OfflineSyncDialog implements Closeable {
     }
 
     private void start(Device device, List<Download> selected) {
-        LinearLayout content = new LinearLayout(activity);
-        content.setOrientation(LinearLayout.VERTICAL);
-        int padding = (int) (24 * activity.getResources().getDisplayMetrics().density);
-        content.setPadding(padding, padding, padding, padding / 2);
-        TextView status = new TextView(activity);
-        status.setText(R.string.offline_sync_preparing);
-        ProgressBar progress = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(100);
-        progress.setIndeterminate(true);
-        content.addView(status);
-        content.addView(progress, new LinearLayout.LayoutParams(-1, -2));
-        AlertDialog current = new AlertDialog.Builder(activity).setTitle(activity.getString(R.string.offline_sync_to, device.getName()))
-                .setView(content).setNegativeButton(R.string.offline_cancel, (choice, index) -> { if (send != null) send.cancel(); })
-                .setCancelable(false).create();
+        OfflineSyncStatus status = new OfflineSyncStatus(activity, device, selected.size(), () -> { if (send != null) send.cancel(); });
+        AlertDialog current = status.dialog;
         dialog = current;
-        current.show();
         send = OfflineCacheSync.get(activity).send(device, selected, new OfflineCacheSync.Listener() {
             @Override public void progress(String title, int index, int count, long received, long total) {
                 if (!alive() || !current.isShowing()) return;
-                status.setText(activity.getString(R.string.offline_sync_progress, index, count, title,
-                        Formatter.formatFileSize(activity, received), Formatter.formatFileSize(activity, total)));
-                progress.setIndeterminate(total == 0);
-                if (total > 0) progress.setProgress((int) Math.min(100, received * 100.0 / total));
+                status.progress(title, index, count, received, total);
             }
             @Override public void complete(int sent, int skipped, String error) {
                 send = null;
                 if (!alive()) return;
                 current.dismiss();
-                String result = activity.getString(R.string.offline_sync_result, sent, skipped);
-                if (error != null) result += "\n" + activity.getString(error.equals("cancelled") ? R.string.offline_sync_cancelled : R.string.offline_sync_error);
-                dialog = new AlertDialog.Builder(activity).setTitle(R.string.offline_sync).setMessage(result)
-                        .setPositiveButton(android.R.string.ok, null).show();
+                dialog = OfflineSyncStatus.result(activity, device, sent, skipped, error);
             }
         });
     }
 
-    private static boolean any(boolean[] values) { for (boolean value : values) if (value) return true; return false; }
-    private static boolean all(boolean[] values) { for (boolean value : values) if (!value) return false; return true; }
 
     @Override public void close() {
         closed = true;

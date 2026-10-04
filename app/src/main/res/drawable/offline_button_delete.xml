@@ -1,0 +1,11 @@
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape><solid android:color="#FFD0D1" /><corners android:radius="10dp" /></shape>
+    </item>
+    <item android:state_focused="true">
+        <shape><solid android:color="#FFD0D1" /><corners android:radius="10dp" /></shape>
+    </item>
+    <item >
+        <shape><solid android:color="@color/offline_danger" /><corners android:radius="10dp" /></shape>
+    </item>
+</selector>
