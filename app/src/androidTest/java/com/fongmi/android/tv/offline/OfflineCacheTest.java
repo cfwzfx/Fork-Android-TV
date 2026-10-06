@@ -741,6 +741,39 @@ public class OfflineCacheTest {
 
     }
 
+    @Test public void playbackStatusFollowsControlsInBothLockStatesAndReleasesBatteryReceiver() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        main(() -> {
+            android.view.ViewGroup decor = (android.view.ViewGroup) screen.getWindow().getDecorView();
+            int layout = context.getResources().getIdentifier("view_control_vod", "layout", context.getPackageName());
+            android.view.View controls = android.view.LayoutInflater.from(screen).inflate(layout, decor, false);
+            int statusId = context.getResources().getIdentifier("playback_status", "id", context.getPackageName());
+            int batteryId = context.getResources().getIdentifier("playback_battery", "id", context.getPackageName());
+            android.view.View status = controls.findViewById(statusId);
+            try {
+                java.lang.reflect.Field listening = status.getClass().getDeclaredField("listening");
+                listening.setAccessible(true);
+                decor.addView(controls);
+                assertTrue(status.isShown());
+                assertTrue(listening.getBoolean(status));
+                assertTrue(((android.widget.TextView) status.findViewById(batteryId)).getText().toString().matches("[0-9]+%"));
+                for (boolean locked : new boolean[] {true, false}) {
+                    controls.findViewById(R.id.top).setVisibility(locked ? android.view.View.GONE : android.view.View.VISIBLE);
+                    assertTrue(status.isShown());
+                    controls.setVisibility(android.view.View.GONE);
+                    assertFalse(status.isShown());
+                    assertFalse(listening.getBoolean(status));
+                    controls.setVisibility(android.view.View.VISIBLE);
+                    assertTrue(status.isShown());
+                    assertTrue(listening.getBoolean(status));
+                }
+                decor.removeView(controls);
+                assertFalse(listening.getBoolean(status));
+            } catch (Exception error) { throw new AssertionError(error); }
+            finally { decor.removeView(controls); }
+        });
+    }
+
     @Test public void cachePromptsCancelConfirmAndShowInspectionResults() throws Exception {
         AtomicInteger actions = new AtomicInteger();
         main(() -> {
