@@ -4,6 +4,11 @@ import android.net.Uri;
 import androidx.annotation.Nullable;
 import androidx.media3.ui.PlayerView;
 import androidx.media3.ui.danmaku.DanmakuConfig;
+import androidx.media3.ui.danmaku.DanmakuController;
+import com.fongmi.android.tv.App;
+import com.fongmi.android.tv.R;
+import com.fongmi.android.tv.utils.Notify;
+import com.fongmi.android.tv.utils.ResUtil;
 import okhttp3.OkHttpClient;
 
 /** Keeps the activity's danmaku state while binding the public PlayerView API. */
@@ -15,8 +20,19 @@ public final class DanmakuViewAdapter implements AutoCloseable {
     private boolean enabled;
 
     public void bind(PlayerView next) {
-        if (view != next && view != null) view.setDanmakuSource(null);
+        if (view != next && view != null) {
+            view.getDanmakuController().setListener(null);
+            view.setDanmakuSource(null);
+        }
         view = next;
+        view.getDanmakuController().setListener(new DanmakuController.Listener() {
+            @Override public void onLoadCompleted(Uri uri, int count) {
+                App.post(() -> {
+                    if (view == next && uri.equals(source))
+                        Notify.show(ResUtil.getString(R.string.danmaku_loaded_count, count));
+                });
+            }
+        });
         view.setDanmakuOkHttpClient(client);
         view.setDanmakuConfig(config);
         view.setDanmakuEnabled(enabled);
@@ -48,7 +64,10 @@ public final class DanmakuViewAdapter implements AutoCloseable {
     }
 
     @Override public void close() {
-        if (view != null) view.getDanmakuController().release();
+        if (view != null) {
+            view.getDanmakuController().setListener(null);
+            view.getDanmakuController().release();
+        }
         view = null;
         source = null;
     }

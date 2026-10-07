@@ -437,4 +437,5 @@
     <string name="offline_verify_hint">檢查已下載檔案是否完整</string>
     <string name="offline_recache_hint">重新取得連結並下載本集</string>
     <string name="offline_delete_hint">刪除任務及其已下載檔案</string>
+    <string name="danmaku_loaded_count">成功載入了 %1$d 條彈幕</string>
 </resources>

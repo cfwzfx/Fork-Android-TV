@@ -447,4 +447,5 @@
     <string name="offline_verify_hint">Check downloaded files for completeness</string>
     <string name="offline_recache_hint">Resolve this episode again and download it</string>
     <string name="offline_delete_hint">Remove the task and its downloaded files</string>
+    <string name="danmaku_loaded_count">Successfully loaded %1$d comments</string>
 </resources>
