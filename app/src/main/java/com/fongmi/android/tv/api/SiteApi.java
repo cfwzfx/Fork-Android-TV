@@ -55,11 +55,13 @@ public class SiteApi {
     @NonNull
     public static Result homeContent(@NonNull Site site) throws Exception {
         if (isSpider(site)) {
+            if (Prefers.getBoolean("crash")) {
+                Prefers.put("crash", false);
+                return Result.empty();
+            }
             Spider spider = site.recent().spider();
-            boolean crash = Prefers.getBoolean("crash");
-            String home = crash ? "" : spider.homeContent(true);
-            String video = crash ? "" : spider.homeVideoContent();
-            Prefers.put("crash", false);
+            String home = spider.homeContent(true);
+            String video = spider.homeVideoContent();
             SpiderDebug.log("home", home);
             SpiderDebug.log("homeVideo", video);
             Result result = Result.fromJson(home);

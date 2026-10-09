@@ -34,7 +34,7 @@
 
 `app/src/main/` 為共用邏輯，`app/src/leanback/`、`app/src/mobile/` 為各自的 UI。模組清單見 [settings.gradle](settings.gradle)，SDK 與依賴版本見 [libs.versions.toml](gradle/libs.versions.toml)。
 
-目前本地適配的問題、修改原因、驗證結果與版本管理規則見 [當前狀態與修改記錄](CURRENT_STATUS.md)。
+本地適配與變更記錄集中於 [專案記錄文檔](docs/README.md)，包含 [當前狀態與修改記錄](docs/CURRENT_STATUS.md) 和 [緩存功能遷移說明](docs/OFFLINE_CACHE.md)。
 
 一般 App 建置直接使用倉庫內的 AAR 和 `player-compat` 原始碼，**不需要額外 clone media、mpv、mpv-android 或 CatVodSpider 倉庫，也不需要先執行播放器重建腳本**。仍需安裝 JDK 21、SDK 37、NDK 29.0.14206865、CMake 3.22.1 和 Python 3.10；首次建置會下載正常的 Gradle、Maven 與 Python 套件依賴。
 

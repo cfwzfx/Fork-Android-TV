@@ -1,6 +1,7 @@
 package com.fongmi.android.tv.api.loader;
 
 import android.content.Context;
+import android.util.Log;
 
 import com.fongmi.android.tv.App;
 import com.fongmi.android.tv.utils.Download;
@@ -24,6 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import dalvik.system.DexClassLoader;
 
 public class JarLoader {
+
+    private static final String TAG = "TV-SpiderInit";
 
     private final ConcurrentHashMap<String, DexClassLoader> loaders;
     private final ConcurrentHashMap<String, Method> methods;
@@ -56,18 +59,29 @@ public class JarLoader {
         if (!Path.exists(file) || !file.setReadOnly()) return;
         String cachePath = Path.jar().getAbsolutePath();
         DexClassLoader loader = new DexClassLoader(file.getAbsolutePath(), cachePath, cachePath, App.get().getClassLoader());
-        invokeInit(loader);
+        Log.i(TAG, "jar_init_start id=" + key + " bytes=" + file.length() + " readOnly=" + !file.canWrite());
+        try {
+            invokeInit(loader, key);
+        } catch (RuntimeException | LinkageError e) {
+            Log.e(TAG, "jar_init_failed id=" + key + " exception=" + e.getClass().getName()
+                    + " cause=" + (e.getCause() == null ? "none" : e.getCause().getClass().getName()));
+            throw e;
+        }
         invokeProxy(key, loader);
         loaders.put(key, loader);
+        Log.i(TAG, "jar_ready id=" + key);
     }
 
-    private void invokeInit(DexClassLoader loader) {
+    private void invokeInit(DexClassLoader loader, String key) {
         try {
             Class<?> clz = loader.loadClass("com.github.catvod.spider.Init");
-            Method method = clz.getMethod("init", Context.class);
-            method.invoke(clz, App.get());
-        } catch (Throwable e) {
-            e.printStackTrace();
+            Log.i(TAG, "init_class_found id=" + key + " loader=" + System.identityHashCode(clz.getClassLoader()));
+            SpiderInitializer.initialize(clz, Context.class, App.get(), message -> Log.i(TAG, "id=" + key + " " + message));
+        } catch (ClassNotFoundException ignored) {
+            Log.i(TAG, "init_class_absent id=" + key);
+            // Sources without an Init class retain their original loading behavior.
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Source initialization failed", e);
         }
     }
 
@@ -117,14 +131,24 @@ public class JarLoader {
         String spKey = jaKey + key;
         return spiders.computeIfAbsent(spKey, k -> {
             try {
+                Log.i(TAG, "spider_request jar=" + jaKey + " site=" + Crypto.md5(key));
                 parseJar(jaKey, jar);
                 DexClassLoader loader = loaders.get(jaKey);
-                if (loader == null) return new SpiderNull();
+                if (loader == null) {
+                    Log.w(TAG, "spider_skipped_no_loader jar=" + jaKey);
+                    return new SpiderNull();
+                }
+                Log.i(TAG, "spider_construct_start jar=" + jaKey);
                 Spider spider = (Spider) loader.loadClass("com.github.catvod.spider." + api.split("csp_")[1]).newInstance();
+                Log.i(TAG, "spider_construct_returned class=" + spider.getClass().getName());
                 spider.siteKey = key;
+                Log.i(TAG, "spider_site_init_start jar=" + jaKey);
                 spider.init(App.get(), ext);
+                Log.i(TAG, "spider_ready jar=" + jaKey);
                 return spider;
             } catch (Throwable e) {
+                Log.e(TAG, "spider_failed jar=" + jaKey + " exception=" + e.getClass().getName()
+                        + " cause=" + (e.getCause() == null ? "none" : e.getCause().getClass().getName()));
                 e.printStackTrace();
                 return new SpiderNull();
             }

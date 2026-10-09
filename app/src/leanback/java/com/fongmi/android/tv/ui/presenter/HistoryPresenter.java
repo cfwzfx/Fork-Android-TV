@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.presenter;
 
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -94,6 +95,9 @@ public class HistoryPresenter extends Presenter {
         public ViewHolder(@NonNull AdapterVodBinding binding) {
             super(binding.getRoot());
             this.binding = binding;
+            binding.remark.setSingleLine(false);
+            binding.remark.setMaxLines(4);
+            binding.remark.setEllipsize(TextUtils.TruncateAt.END);
         }
     }
 }

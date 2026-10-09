@@ -23,8 +23,9 @@ build/
 *.aab
 *.apks
 
-# Generated website output; website sources remain tracked
-/docs/
+# Legacy website output; Markdown project records remain tracked
+/docs/*
+!/docs/*.md
 
 # Python caches and local environments
 __pycache__/
