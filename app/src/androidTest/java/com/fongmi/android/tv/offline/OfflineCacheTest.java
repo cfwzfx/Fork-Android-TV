@@ -2062,7 +2062,7 @@ public class OfflineCacheTest {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
         main(() -> {
             androidx.fragment.app.DialogFragment sheet = (androidx.fragment.app.DialogFragment) dialog[0];
-            int id = context.getResources().getIdentifier("episode_cache", "id", context.getPackageName());
+            int id = context.getResources().getIdentifier("episode_cache_area", "id", context.getPackageName());
             android.view.View button = sheet.requireDialog().findViewById(id);
             assertNotNull("Each episode needs a cache action", button);
             assertTrue(button.performClick());
@@ -2071,6 +2071,228 @@ public class OfflineCacheTest {
             assertTrue(sheet.requireDialog().isShowing());
             sheet.dismissNow();
         });
+    }
+
+    @Test public void portraitSettingsOpensFullWidthCacheManagerWithoutReplacingPlayback() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4");
+        add(video);
+        Player player = launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        androidx.fragment.app.FragmentActivity host = (androidx.fragment.app.FragmentActivity) screen;
+        String[] mediaId = new String[1];
+        main(() -> {
+            mediaId[0] = player.getCurrentMediaItem().mediaId;
+            assertTrue(screen.findViewById(resourceId("setting")).performClick());
+            host.getSupportFragmentManager().executePendingTransactions();
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> {
+            androidx.fragment.app.DialogFragment controls = (androidx.fragment.app.DialogFragment)
+                    host.getSupportFragmentManager().getFragments().stream()
+                            .filter(f -> f.getClass().getSimpleName().equals("ControlDialog")).findFirst().orElseThrow();
+            android.view.View button = controls.requireView().findViewById(resourceId("offline_list"));
+            assertNotNull("Portrait settings must include the cache manager entry", button);
+            assertTrue(button.getGlobalVisibleRect(new android.graphics.Rect()));
+            assertTrue(button.performClick());
+        });
+        Thread.sleep(350);
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        OfflineCacheDialog[] panel = new OfflineCacheDialog[1];
+        main(() -> {
+            panel[0] = (OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel");
+            assertNotNull(panel[0]);
+            assertTrue(panel[0].requireDialog() instanceof com.google.android.material.bottomsheet.BottomSheetDialog);
+            android.view.View sheet = (android.view.View) panel[0].requireView().getParent();
+            assertEquals(screen.getResources().getDisplayMetrics().widthPixels, sheet.getWidth());
+            assertTrue(panel[0].requireView().findViewById(R.id.offline_select).getGlobalVisibleRect(new android.graphics.Rect()));
+            assertTrue(panel[0].requireView().findViewById(R.id.offline_back).getGlobalVisibleRect(new android.graphics.Rect()));
+            assertEquals(mediaId[0], player.getCurrentMediaItem().mediaId);
+        });
+        capturePortraitSheet("cache-manager");
+        main(() -> panel[0].requireView().findViewById(R.id.offline_back).performClick());
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> assertEquals(mediaId[0], player.getCurrentMediaItem().mediaId));
+    }
+
+    @Test public void portraitMoreOpensForSingleEpisodeWithoutOfferingRedownload() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4");
+        add(video);
+        launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        main(() -> {
+            android.view.View more = screen.findViewById(resourceId("more"));
+            assertEquals("A movie with one episode still needs the full episode sheet", android.view.View.VISIBLE, more.getVisibility());
+            assertTrue(more.performClick());
+            ((androidx.fragment.app.FragmentActivity) screen).getSupportFragmentManager().executePendingTransactions();
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> {
+            androidx.fragment.app.DialogFragment sheet = (androidx.fragment.app.DialogFragment)
+                    ((androidx.fragment.app.FragmentActivity) screen).getSupportFragmentManager().getFragments().stream()
+                            .filter(f -> f.getClass().getSimpleName().equals("EpisodeGridDialog")).findFirst().orElseThrow();
+            assertTrue(sheet.requireDialog().isShowing());
+            assertNull("Offline playback must not offer another cache", sheet.requireDialog().findViewById(resourceId("episode_cache_area")));
+            sheet.dismissNow();
+        });
+    }
+
+    @Test public void portraitGridCachesUnplayedEpisodeWithoutChangingPlayback() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo current = transferable("a/sample.mp4");
+        add(current);
+        Player player = launchSharedPlayer(waitState(current.id, Download.STATE_COMPLETED));
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        history.setEpisodeUrl(server.url("comments/sample.mp4"));
+        String targetId = independentId(history);
+        com.fongmi.android.tv.bean.Episode first = com.fongmi.android.tv.bean.Episode.create("第1集", current.url);
+        com.fongmi.android.tv.bean.Episode second = com.fongmi.android.tv.bean.Episode.create("第2集", history.getEpisodeUrl());
+        first.setSelected(true);
+        androidx.fragment.app.DialogFragment[] sheet = new androidx.fragment.app.DialogFragment[1];
+        String[] mediaId = new String[1];
+        main(() -> {
+            mediaId[0] = player.getCurrentMediaItem().mediaId;
+            try {
+                Class<?> type = Class.forName("com.fongmi.android.tv.ui.dialog.EpisodeGridDialog");
+                sheet[0] = (androidx.fragment.app.DialogFragment) type.getMethod("create").invoke(null);
+                type.getMethod("episodes", List.class).invoke(sheet[0], List.of(first, second));
+                type.getMethod("cacheHistory", com.fongmi.android.tv.bean.History.class).invoke(sheet[0], history);
+                type.getMethod("show", androidx.fragment.app.FragmentActivity.class).invoke(sheet[0], screen);
+                ((androidx.fragment.app.FragmentActivity) screen).getSupportFragmentManager().executePendingTransactions();
+            } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> {
+            android.view.View target = findEpisodeText(sheet[0].requireView(), "第2集");
+            assertNotNull(target);
+            assertTrue(((android.view.View) target.getParent()).findViewById(resourceId("episode_cache_area")).performClick());
+            assertEquals("Episode names stay on one line", 1, ((android.widget.TextView) target).getMaxLines());
+            assertTrue("Caching must keep the sheet open", sheet[0].requireDialog().isShowing());
+            assertTrue(first.isSelected());
+            assertFalse(second.isSelected());
+            assertEquals("Caching must not replace the current player media", mediaId[0], player.getCurrentMediaItem().mediaId);
+        });
+        waitState(targetId, Download.STATE_COMPLETED);
+        long deadline = System.currentTimeMillis() + 5000;
+        boolean[] labeled = {false};
+        do {
+            main(() -> {
+                android.view.View text = findEpisodeText(sheet[0].requireView(), "第2集");
+                android.view.View icon = ((android.view.View) text.getParent()).findViewById(resourceId("episode_cache_area"));
+                labeled[0] = icon.getContentDescription().toString().contains(context.getString(R.string.offline_episode_cached));
+            });
+            if (!labeled[0]) Thread.sleep(100);
+        } while (!labeled[0] && System.currentTimeMillis() < deadline);
+        assertTrue("Completed download must update the episode grid", labeled[0]);
+        capturePortraitSheet("completed");
+        main(() -> {
+            assertNull("Cache state uses an icon, without a text label", sheet[0].requireDialog().findViewById(resourceId("episode_download_status")));
+            assertEquals(mediaId[0], player.getCurrentMediaItem().mediaId);
+            sheet[0].dismissNow();
+        });
+    }
+
+    @Test public void portraitCacheGridKeepsActionsVisibleAcrossPagesAndPlaybackClick() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo current = transferable("a/sample.mp4");
+        add(current);
+        launchSharedPlayer(waitState(current.id, Download.STATE_COMPLETED));
+        com.fongmi.android.tv.bean.History history = independentHistory();
+        com.fongmi.android.tv.bean.History targetHistory = history.copy();
+        targetHistory.setVodRemarks("第55集");
+        targetHistory.setEpisodeUrl(server.url("comments/sample.mp4"));
+        String targetId = independentId(targetHistory);
+        ids.add(targetId);
+        List<com.fongmi.android.tv.bean.Episode> episodes = new ArrayList<>();
+        main(() -> {
+            try {
+                java.lang.reflect.Field field = screen.getClass().getDeclaredField("mEpisodeAdapter");
+                field.setAccessible(true);
+                Object adapter = field.get(screen);
+                episodes.add((com.fongmi.android.tv.bean.Episode) adapter.getClass().getMethod("getActivated").invoke(adapter));
+            } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+        });
+        for (int i = 2; i <= 55; i++) episodes.add(com.fongmi.android.tv.bean.Episode.create("第" + i + "集", server.url("comments/sample.mp4")));
+        androidx.fragment.app.DialogFragment[] sheet = new androidx.fragment.app.DialogFragment[1];
+        main(() -> {
+            try {
+                Class<?> type = Class.forName("com.fongmi.android.tv.ui.dialog.EpisodeGridDialog");
+                sheet[0] = (androidx.fragment.app.DialogFragment) type.getMethod("create").invoke(null);
+                type.getMethod("episodes", List.class).invoke(sheet[0], episodes);
+                type.getMethod("cacheHistory", com.fongmi.android.tv.bean.History.class).invoke(sheet[0], history);
+                type.getMethod("show", androidx.fragment.app.FragmentActivity.class).invoke(sheet[0], screen);
+                ((androidx.fragment.app.FragmentActivity) screen).getSupportFragmentManager().executePendingTransactions();
+            } catch (ReflectiveOperationException error) { throw new AssertionError(error); }
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        capturePortraitSheet("combined");
+        main(() -> {
+            androidx.viewpager2.widget.ViewPager2 pager = sheet[0].requireDialog().findViewById(resourceId("pager"));
+            assertTrue("The fixture must exercise a second page", pager.getAdapter().getItemCount() > 1);
+            pager.setCurrentItem(pager.getAdapter().getItemCount() - 1, false);
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> {
+            boolean scrolled = false;
+            for (androidx.fragment.app.Fragment page : sheet[0].getChildFragmentManager().getFragments()) {
+                android.os.Bundle args = page.getArguments();
+                ArrayList<com.fongmi.android.tv.bean.Episode> items = args == null ? null : args.getParcelableArrayList("items");
+                if (items != null && items.stream().anyMatch(item -> item.getName().equals("第55集"))
+                        && page.getView() instanceof androidx.recyclerview.widget.RecyclerView recycler) {
+                    recycler.scrollToPosition(items.size() - 1);
+                    scrolled = true;
+                }
+            }
+            assertTrue("The second page must allow scrolling to its final episode", scrolled);
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        capturePortraitSheet("last-page");
+        main(() -> {
+            android.view.View target = findEpisodeText(sheet[0].requireView(), "第55集");
+            assertNotNull("New pages must include the final episode", target);
+            assertTrue("The final episode must be visible after scrolling", target.getGlobalVisibleRect(new android.graphics.Rect()));
+            android.view.View cache = ((android.view.View) target.getParent()).findViewById(resourceId("episode_cache_area"));
+            android.graphics.Rect visible = new android.graphics.Rect();
+            assertTrue("Cache icon must remain fully visible", cache.getGlobalVisibleRect(visible));
+            assertEquals(cache.getWidth(), visible.width());
+            assertEquals(cache.getHeight(), visible.height());
+            assertTrue(cache.performClick());
+            assertTrue(sheet[0].requireDialog().isShowing());
+        });
+        waitState(targetId, Download.STATE_COMPLETED);
+        main(() -> {
+            ((androidx.viewpager2.widget.ViewPager2) sheet[0].requireDialog().findViewById(resourceId("pager"))).setCurrentItem(0, false);
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> {
+            android.view.View target = findEpisodeText(sheet[0].requireView(), episodes.get(0).getName());
+            assertNotNull(target);
+            assertTrue(target.performClick());
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> assertTrue("Ordinary playback selection must dismiss the sheet", sheet[0].getDialog() == null || !sheet[0].getDialog().isShowing()));
+    }
+
+    private void capturePortraitSheet(String name) throws Exception {
+        android.graphics.Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull(bitmap);
+        try (java.io.FileOutputStream output = new java.io.FileOutputStream(new File(context.getCacheDir(), "portrait-" + name + ".png"))) {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
+        } finally { bitmap.recycle(); }
+    }
+
+    private int resourceId(String name) {
+        return context.getResources().getIdentifier(name, "id", context.getPackageName());
+    }
+
+    private android.view.View findEpisodeText(android.view.View view, String text) {
+        if (view instanceof android.widget.TextView label && text.equals(label.getText().toString())) return view;
+        if (view instanceof android.view.ViewGroup group) {
+            for (int i = 0; i < group.getChildCount(); i++) {
+                android.view.View match = findEpisodeText(group.getChildAt(i), text);
+                if (match != null) return match;
+            }
+        }
+        return null;
     }
 
     private com.fongmi.android.tv.bean.History independentHistory() {

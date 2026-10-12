@@ -8,9 +8,9 @@
         android:ellipsize="end" android:focusable="true" android:gravity="center" android:minHeight="44dp"
         android:padding="8dp" android:maxLines="2" android:textColor="@color/selector_control" android:textSize="14sp" />
     <View android:layout_width="1dp" android:layout_height="24dp" android:background="@color/selector_stroke" android:alpha="0.4" />
-    <LinearLayout android:id="@+id/episode_cache_area" android:layout_width="44dp" android:layout_height="wrap_content"
+    <LinearLayout android:id="@+id/episode_cache_area" android:layout_width="44dp" android:layout_height="match_parent"
         android:minHeight="44dp" android:orientation="horizontal" android:gravity="center" android:paddingHorizontal="4dp"
-        android:background="?attr/selectableItemBackground" android:focusable="true">
+        android:background="@drawable/shape_episode_cache" android:focusable="true">
         <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/episode_cache"
             android:layout_width="22dp" android:layout_height="22dp" android:background="@android:color/transparent"
             android:importantForAccessibility="no" android:clickable="false" android:focusable="false"

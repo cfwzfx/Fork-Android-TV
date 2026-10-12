@@ -21,6 +21,7 @@ import java.util.List;
 public class EpisodeFragment extends BaseFragment implements EpisodeAdapter.OnClickListener {
 
     private FragmentEpisodeBinding mBinding;
+    private EpisodeAdapter adapter;
 
     private int getSpanCount() {
         return getArguments().getInt("spanCount");
@@ -50,12 +51,27 @@ public class EpisodeFragment extends BaseFragment implements EpisodeAdapter.OnCl
     }
 
     private void setRecyclerView() {
-        EpisodeAdapter adapter;
         mBinding.recycler.setHasFixedSize(true);
         mBinding.recycler.setItemAnimator(null);
         mBinding.recycler.setLayoutManager(new GridLayoutManager(getContext(), getSpanCount()));
-        mBinding.recycler.setAdapter(adapter = new EpisodeAdapter(this, ViewType.GRID, getItems()));
+        adapter = new EpisodeAdapter(this, ViewType.GRID, getItems()).singleLine();
+        if (getParentFragment() instanceof com.fongmi.android.tv.ui.dialog.EpisodeGridDialog dialog) {
+            if (dialog.isCacheEnabled()) adapter.cache(dialog::cacheEpisode);
+            adapter.cacheStates(dialog.getCacheStates());
+        }
+        mBinding.recycler.setAdapter(adapter);
         mBinding.recycler.scrollToPosition(adapter.getPosition());
+    }
+
+    public void cacheStates(java.util.Map<String, Integer> states) {
+        if (adapter != null) adapter.cacheStates(states);
+    }
+
+    @Override
+    public void onDestroyView() {
+        mBinding = null;
+        adapter = null;
+        super.onDestroyView();
     }
 
     @Override

@@ -345,15 +345,6 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     @Override
     @SuppressLint("ClickableViewAccessibility")
     protected void initEvent() {
-        mBinding.control.offlineCache.setOnClickListener(v -> {
-            if (mOffline != null) { Notify.show(R.string.offline_already_cached); return; }
-            if (service() == null) {
-                com.fongmi.android.tv.offline.OfflineIntegration.cacheEpisode(this, mHistory);
-                return;
-            }
-            com.fongmi.android.tv.offline.OfflineIntegration.cacheCurrent(this, player(), mHistory);
-        });
-        mBinding.control.offlineCache.setOnLongClickListener(v -> { com.fongmi.android.tv.offline.OfflineIntegration.open(this); return true; });
         mBinding.control.action.offlineList.setOnClickListener(v -> com.fongmi.android.tv.offline.OfflineIntegration.showPanel(this));
         mBinding.name.setOnClickListener(view -> onName());
         mBinding.more.setOnClickListener(view -> onMore());
@@ -880,7 +871,7 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
         mBinding.control.prev.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.reverse.setVisibility(items.size() < 2 ? View.GONE : View.VISIBLE);
         mBinding.episode.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
-        mBinding.more.setVisibility(items.size() < 10 ? View.GONE : View.VISIBLE);
+        mBinding.more.setVisibility(items.isEmpty() ? View.GONE : View.VISIBLE);
         mEpisodeAdapter.addAll(items);
     }
 
@@ -896,7 +887,11 @@ public class VideoActivity extends PlaybackActivity implements Clock.Callback, C
     }
 
     private void onMore() {
-        EpisodeGridDialog.create().reverse(mHistory.isRevSort()).episodes(mEpisodeAdapter.getItems()).show(this);
+        if (mHistory == null || mEpisodeAdapter.isEmpty()) return;
+        History snapshot = mHistory.copy();
+        if (!mFlagAdapter.isEmpty()) snapshot.setVodFlag(mFlagAdapter.get(mFlagAdapter.getPosition()).getFlag());
+        EpisodeGridDialog.create().reverse(mHistory.isRevSort()).episodes(mEpisodeAdapter.getItems())
+                .cacheHistory(mOffline == null ? snapshot : null).show(this);
     }
 
     private void onActor() {

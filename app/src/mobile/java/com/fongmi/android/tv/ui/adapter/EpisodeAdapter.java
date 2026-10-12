@@ -23,6 +23,12 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
     private final List<Episode> mItems;
     private final int viewType;
     private java.util.function.Consumer<Episode> cache;
+    private boolean singleLine;
+
+    public EpisodeAdapter singleLine() {
+        singleLine = true;
+        return this;
+    }
 
     private java.util.Map<String, Integer> cacheStates = java.util.Collections.emptyMap();
 
@@ -115,6 +121,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
                     com.fongmi.android.tv.databinding.AdapterEpisodeCacheBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false);
             return new BaseEpisodeHolder(binding.getRoot()) {
                 @Override public void initView(Episode item) {
+                    if (singleLine) binding.text.setSingleLine(true);
                     binding.text.setText(item.getDesc().concat(item.getName()));
                     binding.getRoot().setSelected(item.isSelected());
                     binding.text.setSelected(item.isSelected());
