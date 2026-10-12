@@ -1097,8 +1097,10 @@ public class OfflineCacheTest {
                 int[] location = new int[2];
                 root.getLocationOnScreen(location);
                 populated[0] = list.getChildCount() == 1
-                        && ((com.google.android.material.sidesheet.SideSheetDialog) panel[0].requireDialog())
-                                .getBehavior().getState() == com.google.android.material.sidesheet.SideSheetBehavior.STATE_EXPANDED
+                        && (panel[0].requireDialog() instanceof com.google.android.material.sidesheet.SideSheetDialog side
+                                ? side.getBehavior().getState() == com.google.android.material.sidesheet.SideSheetBehavior.STATE_EXPANDED
+                                : ((com.google.android.material.bottomsheet.BottomSheetDialog) panel[0].requireDialog())
+                                        .getBehavior().getState() == com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED)
                         && location[0] + root.getWidth() <= screen.getResources().getDisplayMetrics().widthPixels;
             });
             if (!populated[0]) Thread.sleep(100);
@@ -1133,8 +1135,13 @@ public class OfflineCacheTest {
             assertEquals(android.view.View.GONE, root.findViewById(R.id.offline_empty_container).getVisibility());
             int[] position = new int[2];
             root.getLocationOnScreen(position);
-            assertTrue("Panel must leave playback visible on the left", position[0] > 0);
-            assertTrue("Panel width must retain the original 420dp limit", root.getWidth() <= 420 * screen.getResources().getDisplayMetrics().density + 1);
+            if (panel[0].requireDialog() instanceof com.google.android.material.sidesheet.SideSheetDialog) {
+                assertTrue("Side panel must leave playback visible on the left", position[0] > 0);
+                assertTrue("Side panel width must retain the original 420dp limit", root.getWidth() <= 420 * screen.getResources().getDisplayMetrics().density + 1);
+            } else {
+                assertTrue("Bottom panel must leave playback visible above", position[1] > 0);
+                assertEquals("Portrait manager must use the full width", screen.getResources().getDisplayMetrics().widthPixels, root.getWidth());
+            }
             assertEquals(context.getString(R.string.offline_play), list.getChildAt(2).findViewById(R.id.offline_action).getContentDescription());
             assertTrue("A completed cache row must stay below 80dp tall",
                     list.getChildAt(2).getHeight() <= 80 * screen.getResources().getDisplayMetrics().density);
@@ -2073,6 +2080,207 @@ public class OfflineCacheTest {
         });
     }
 
+    @Test public void portraitEpisodeMarqueeScrollsWhileLandscapeKeepsTwoLines() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4"); add(video);
+        launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        androidx.fragment.app.FragmentActivity host = (androidx.fragment.app.FragmentActivity) screen;
+        String name = "这是一段很长的剧集名称用于验证选集文字持续滚动而缓存图标保持固定位置".repeat(3);
+        com.fongmi.android.tv.bean.Episode episode = com.fongmi.android.tv.bean.Episode.create(name, server.url("a/sample.mp4"));
+        episode.setSelected(true);
+        androidx.fragment.app.DialogFragment[] sheet = new androidx.fragment.app.DialogFragment[1];
+        android.graphics.Rect region = new android.graphics.Rect();
+        main(() -> sheet[0] = showReviewGrid(List.of(episode)));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        Thread.sleep(2000);
+        main(() -> {
+            android.widget.TextView text = (android.widget.TextView) findEpisodeText(sheet[0].requireView(), name);
+            assertTrue(text.getGlobalVisibleRect(region));
+            assertEquals(1, text.getLineCount());
+            assertEquals(android.text.TextUtils.TruncateAt.MARQUEE, text.getEllipsize());
+            assertTrue("The fixture must actually overflow the text area", text.getPaint().measureText(name) > text.getWidth() - text.getCompoundPaddingLeft() - text.getCompoundPaddingRight());
+        });
+        android.graphics.Bitmap first = captureTextRegion(region);
+        Thread.sleep(1800);
+        android.graphics.Bitmap second = captureTextRegion(region);
+        try { assertFalse("Portrait long names must visibly scroll", first.sameAs(second)); }
+        finally { first.recycle(); second.recycle(); }
+        main(() -> { sheet[0].dismissNow(); host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE); });
+        Thread.sleep(600);
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        try {
+            main(() -> {
+                try {
+                    Class<?> type = Class.forName("com.fongmi.android.tv.ui.dialog.EpisodeListDialog");
+                    sheet[0] = (androidx.fragment.app.DialogFragment) type.getMethod("create").invoke(null);
+                    type.getMethod("episodes", List.class).invoke(sheet[0], List.of(episode));
+                    type.getMethod("cache", java.util.function.Consumer.class).invoke(sheet[0], (java.util.function.Consumer<com.fongmi.android.tv.bean.Episode>) item -> {});
+                    type.getMethod("show", androidx.fragment.app.FragmentActivity.class).invoke(sheet[0], host);
+                    host.getSupportFragmentManager().executePendingTransactions();
+                } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+            });
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            main(() -> {
+                android.widget.TextView text = (android.widget.TextView) findEpisodeText(sheet[0].requireView(), name);
+                assertEquals(2, text.getMaxLines());
+                assertEquals(2, text.getLineCount());
+                assertEquals(android.text.TextUtils.TruncateAt.END, text.getEllipsize());
+                assertTrue(sheet[0].requireView().findViewById(resourceId("episode_cache_area")).getGlobalVisibleRect(new android.graphics.Rect()));
+                sheet[0].dismissNow();
+            });
+        } finally { main(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)); }
+    }
+
+    private android.graphics.Bitmap captureTextRegion(android.graphics.Rect region) {
+        android.graphics.Bitmap screen = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull(screen);
+        try { return android.graphics.Bitmap.createBitmap(screen, region.left, region.top, region.width(), region.height()); }
+        finally { screen.recycle(); }
+    }
+
+    @Test public void episodeGridFreezesListWhilePlayerChangesSource() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4"); add(video);
+        launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        List<com.fongmi.android.tv.bean.Episode> items = new ArrayList<>();
+        for (int i = 1; i <= 120; i++) items.add(com.fongmi.android.tv.bean.Episode.create("第" + i + "集", server.url("comments/sample.mp4")));
+        androidx.fragment.app.DialogFragment[] grid = new androidx.fragment.app.DialogFragment[1];
+        main(() -> grid[0] = showReviewGrid(items));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> {
+            // VideoActivity's adapter clears and refills this same list on an automatic line switch.
+            items.clear();
+            items.add(com.fongmi.android.tv.bean.Episode.create("新线路", server.url("a/sample.mp4")));
+            assertEquals("The open grid must retain its original show/line snapshot", 120, ((List<?>) reviewField(grid[0], "episodes")).size());
+            androidx.viewpager2.widget.ViewPager2 pager = grid[0].requireView().findViewById(resourceId("pager"));
+            pager.setCurrentItem(pager.getAdapter().getItemCount() - 1, false);
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> { assertNotNull(findEpisodeText(grid[0].requireView(), "第120集")); grid[0].dismissNow(); });
+    }
+
+    @Test public void episodeGridRestoresSamePageRangesAfterOrientationChanges() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4"); add(video);
+        launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        androidx.fragment.app.FragmentActivity host = (androidx.fragment.app.FragmentActivity) screen;
+        List<com.fongmi.android.tv.bean.Episode> items = new ArrayList<>();
+        for (int i = 1; i <= 120; i++) items.add(com.fongmi.android.tv.bean.Episode.create("第" + i + "集", server.url("comments/sample.mp4")));
+        androidx.fragment.app.DialogFragment[] grid = new androidx.fragment.app.DialogFragment[1];
+        android.os.Bundle[] args = new android.os.Bundle[1];
+        androidx.fragment.app.Fragment.SavedState[] saved = new androidx.fragment.app.Fragment.SavedState[1];
+        int[] pageSize = new int[1];
+        main(() -> grid[0] = showReviewGrid(items));
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> {
+            pageSize[0] = (Integer) reviewField(grid[0], "itemCount");
+            saved[0] = host.getSupportFragmentManager().saveFragmentInstanceState(grid[0]);
+            args[0] = new android.os.Bundle(grid[0].requireArguments());
+            grid[0].dismissNow();
+            host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        });
+        Thread.sleep(600);
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        try {
+            main(() -> {
+                try { grid[0] = (androidx.fragment.app.DialogFragment) Class.forName("com.fongmi.android.tv.ui.dialog.EpisodeGridDialog").getConstructor().newInstance(); }
+                catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+                grid[0].setArguments(args[0]); grid[0].setInitialSavedState(saved[0]);
+                grid[0].show(host.getSupportFragmentManager(), "review_grid");
+                host.getSupportFragmentManager().executePendingTransactions();
+                assertEquals("Restored children and parent must use the same page size", pageSize[0], reviewField(grid[0], "itemCount"));
+                for (androidx.fragment.app.Fragment child : grid[0].getChildFragmentManager().getFragments()) {
+                    if (child.getArguments() != null) assertEquals(reviewField(grid[0], "spanCount"), child.getArguments().getInt("spanCount"));
+                }
+                grid[0].dismissNow();
+            });
+        } finally { main(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)); }
+    }
+
+    @Test public void controlDialogCanRecoverWithoutTransientPlayerReferences() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4"); add(video);
+        launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        androidx.fragment.app.FragmentActivity host = (androidx.fragment.app.FragmentActivity) screen;
+        androidx.fragment.app.DialogFragment[] controls = new androidx.fragment.app.DialogFragment[1];
+        main(() -> {
+            try { controls[0] = (androidx.fragment.app.DialogFragment) Class.forName("com.fongmi.android.tv.ui.dialog.ControlDialog").getConstructor().newInstance(); }
+            catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+            // Android restores a Fragment using its no-argument constructor, without fluent setters.
+            controls[0].show(host.getSupportFragmentManager(), "review_controls");
+            host.getSupportFragmentManager().executePendingTransactions();
+        });
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        main(() -> {
+            assertNotNull(reviewField(controls[0], "parent"));
+            assertNotNull(reviewField(controls[0], "player"));
+            assertTrue(controls[0].requireView().findViewById(resourceId("offline_list")).isClickable());
+            controls[0].dismissNow();
+        });
+    }
+
+    @Test public void controlCacheButtonKeepsTextWidthWithDanmakuAndLargeFont() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        main(() -> {
+            android.content.res.Configuration config = new android.content.res.Configuration(screen.getResources().getConfiguration());
+            config.fontScale = 2;
+            android.view.ContextThemeWrapper themed = new android.view.ContextThemeWrapper(screen.createConfigurationContext(config), 0);
+            themed.getTheme().setTo(screen.getTheme());
+            int layout = context.getResources().getIdentifier("dialog_control", "layout", context.getPackageName());
+            android.view.View root = android.view.LayoutInflater.from(themed).inflate(layout, null);
+            root.findViewById(resourceId("danmaku")).setVisibility(android.view.View.VISIBLE);
+            int width = (int) (320 * themed.getResources().getDisplayMetrics().density);
+            root.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+            android.widget.TextView cache = root.findViewById(resourceId("offline_list"));
+            int required = (int) Math.ceil(cache.getPaint().measureText(cache.getText().toString())) + cache.getCompoundPaddingLeft() + cache.getCompoundPaddingRight();
+            assertTrue("The last cache button must not be squeezed below its readable text width", cache.getMeasuredWidth() >= required);
+        });
+    }
+
+    @Test public void cacheManagerRestoresSelectionAfterFragmentRecreation() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4"); add(video);
+        launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        androidx.fragment.app.FragmentActivity host = (androidx.fragment.app.FragmentActivity) screen;
+        OfflineCacheDialog[] panel = new OfflineCacheDialog[1];
+        main(() -> { OfflineIntegration.showPanel(host); host.getSupportFragmentManager().executePendingTransactions();
+            panel[0] = (OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel"); });
+        boolean[] ready = {false}; long deadline = System.currentTimeMillis() + 5000;
+        do { main(() -> ready[0] = panel[0].requireView().findViewById(R.id.offline_select_all).isEnabled()); if (!ready[0]) Thread.sleep(100); }
+        while (!ready[0] && System.currentTimeMillis() < deadline);
+        assertTrue(ready[0]);
+        String[] count = new String[1];
+        main(() -> {
+            panel[0].requireView().findViewById(R.id.offline_select).performClick();
+            panel[0].requireView().findViewById(R.id.offline_select_all).performClick();
+            count[0] = ((android.widget.TextView) panel[0].requireView().findViewById(R.id.offline_selection_count)).getText().toString();
+            androidx.fragment.app.Fragment.SavedState saved = host.getSupportFragmentManager().saveFragmentInstanceState(panel[0]);
+            panel[0].dismissNow(); panel[0] = new OfflineCacheDialog(); panel[0].setInitialSavedState(saved);
+            panel[0].show(host.getSupportFragmentManager(), "offline_panel"); host.getSupportFragmentManager().executePendingTransactions();
+            assertEquals(android.view.View.VISIBLE, panel[0].requireView().findViewById(R.id.offline_selection_bar).getVisibility());
+            assertEquals(count[0], ((android.widget.TextView) panel[0].requireView().findViewById(R.id.offline_selection_count)).getText().toString());
+            panel[0].dismissNow();
+        });
+    }
+
+    private androidx.fragment.app.DialogFragment showReviewGrid(List<com.fongmi.android.tv.bean.Episode> items) {
+        try {
+            Class<?> type = Class.forName("com.fongmi.android.tv.ui.dialog.EpisodeGridDialog");
+            androidx.fragment.app.DialogFragment dialog = (androidx.fragment.app.DialogFragment) type.getConstructor().newInstance();
+            type.getMethod("episodes", List.class).invoke(dialog, items);
+            type.getMethod("cacheHistory", com.fongmi.android.tv.bean.History.class).invoke(dialog, independentHistory());
+            type.getMethod("show", androidx.fragment.app.FragmentActivity.class).invoke(dialog, screen);
+            ((androidx.fragment.app.FragmentActivity) screen).getSupportFragmentManager().executePendingTransactions();
+            return dialog;
+        } catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+
+    private Object reviewField(Object object, String name) {
+        try { java.lang.reflect.Field field = object.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(object); }
+        catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+    }
+
     @Test public void portraitSettingsOpensFullWidthCacheManagerWithoutReplacingPlayback() throws Exception {
         org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
         OfflineVideo video = transferable("a/sample.mp4");
@@ -2108,10 +2316,50 @@ public class OfflineCacheTest {
             assertTrue(panel[0].requireView().findViewById(R.id.offline_back).getGlobalVisibleRect(new android.graphics.Rect()));
             assertEquals(mediaId[0], player.getCurrentMediaItem().mediaId);
         });
+        Thread.sleep(700);
         capturePortraitSheet("cache-manager");
-        main(() -> panel[0].requireView().findViewById(R.id.offline_back).performClick());
+        main(() -> {
+            panel[0].requireView().findViewById(R.id.offline_select).performClick();
+            host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        });
+        Thread.sleep(600);
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        try {
+            main(() -> {
+                android.view.View sheet = (android.view.View) panel[0].requireView().getParent();
+                assertTrue("Rotated manager must fit the shorter window", sheet.getHeight() <= host.getResources().getDisplayMetrics().heightPixels);
+                assertEquals(android.view.View.VISIBLE, panel[0].requireView().findViewById(R.id.offline_selection_bar).getVisibility());
+                android.view.View close = panel[0].requireView().findViewById(R.id.offline_back);
+                android.graphics.Rect visible = new android.graphics.Rect();
+                assertTrue(close.getGlobalVisibleRect(visible));
+                assertEquals(close.getHeight(), visible.height());
+                assertEquals(mediaId[0], player.getCurrentMediaItem().mediaId);
+                close.performClick();
+            });
+        } finally { main(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)); }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
         main(() -> assertEquals(mediaId[0], player.getCurrentMediaItem().mediaId));
+    }
+
+    @Test public void cacheManagerKeepsSideSheetInLandscape() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4");
+        add(video);
+        launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        androidx.fragment.app.FragmentActivity host = (androidx.fragment.app.FragmentActivity) screen;
+        main(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));
+        Thread.sleep(600);
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        try {
+            main(() -> {
+                assertEquals(android.content.res.Configuration.ORIENTATION_LANDSCAPE, host.getResources().getConfiguration().orientation);
+                OfflineIntegration.showPanel(host);
+                host.getSupportFragmentManager().executePendingTransactions();
+                OfflineCacheDialog panel = (OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel");
+                assertTrue(panel.requireDialog() instanceof com.google.android.material.sidesheet.SideSheetDialog);
+                panel.dismissNow();
+            });
+        } finally { main(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)); }
     }
 
     @Test public void portraitMoreOpensForSingleEpisodeWithoutOfferingRedownload() throws Exception {

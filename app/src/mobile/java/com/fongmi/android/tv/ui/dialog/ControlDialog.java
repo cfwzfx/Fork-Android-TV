@@ -1,5 +1,6 @@
 package com.fongmi.android.tv.ui.dialog;
 
+import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -45,18 +46,10 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         return new ControlDialog();
     }
 
-    public ControlDialog parent(ActivityVideoBinding parent) {
-        this.parent = parent;
-        return this;
-    }
-
     public ControlDialog parse(boolean parse) {
         this.parse = parse;
-        return this;
-    }
-
-    public ControlDialog player(PlayerManager player) {
-        this.player = player;
+        if (getArguments() == null) setArguments(new Bundle());
+        requireArguments().putBoolean("parse", parse);
         return this;
     }
 
@@ -75,6 +68,13 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
 
     @Override
     protected void initView() {
+        if (getArguments() != null) parse = getArguments().getBoolean("parse", parse);
+        ((Listener) requireActivity()).onControlReady(this);
+    }
+
+    public void bindControls(ActivityVideoBinding parent, PlayerManager player) {
+        this.parent = parent;
+        this.player = player;
         binding.decode.setText(parent.control.action.decode.getText());
         binding.ending.setText(parent.control.action.ending.getText());
         binding.opening.setText(parent.control.action.opening.getText());
@@ -86,10 +86,11 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
         setScaleText();
         setPlayer();
         setParse();
+        bindEvents();
     }
 
-    @Override
-    protected void initEvent() {
+    private void bindEvents() {
+        binding.offlineList.setOnClickListener(v -> dismiss(parent.control.action.offlineList));
         binding.timer.setOnClickListener(this::onTimer);
         binding.speed.addOnChangeListener(this::setSpeed);
         for (TextView view : scales) view.setOnClickListener(this::setScale);
@@ -191,6 +192,8 @@ public class ControlDialog extends BaseBottomSheetDialog implements ParseAdapter
     }
 
     public interface Listener {
+
+        void onControlReady(ControlDialog dialog);
 
         void onScale(int tag);
 

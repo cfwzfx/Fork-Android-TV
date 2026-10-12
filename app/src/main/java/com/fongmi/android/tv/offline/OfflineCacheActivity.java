@@ -44,11 +44,15 @@ public final class OfflineCacheActivity extends AppCompatActivity {
     }
 
     static void applyInsets(View root) {
+        applyInsets(root, true);
+    }
+
+    static void applyInsets(View root, boolean includeTop) {
         int left = root.getPaddingLeft(), top = root.getPaddingTop();
         int right = root.getPaddingRight(), bottom = root.getPaddingBottom();
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, window) -> {
             Insets insets = window.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
-            view.setPadding(left + insets.left, top + insets.top, right + insets.right, bottom + insets.bottom);
+            view.setPadding(left + insets.left, top + (includeTop ? insets.top : 0), right + insets.right, bottom + insets.bottom);
             return window;
         });
         ViewCompat.requestApplyInsets(root);

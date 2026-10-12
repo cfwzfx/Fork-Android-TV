@@ -58,7 +58,7 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
     }
 
     public EpisodeGridDialog episodes(List<Episode> episodes) {
-        this.episodes = episodes;
+        this.episodes = new ArrayList<>(episodes);
         arguments().putParcelableArrayList("episodes", new ArrayList<>(episodes));
         return this;
     }
@@ -176,6 +176,11 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
     }
 
     private void setSpanCount() {
+        if (arguments().containsKey("span_count")) {
+            spanCount = arguments().getInt("span_count");
+            itemCount = arguments().getInt("item_count");
+            return;
+        }
         int avg = (int) Math.ceil(episodes.stream().mapToInt(e -> e.getName().length()).average().orElse(0));
         if (avg >= 12) spanCount = 1;
         else if (avg >= 8) spanCount = 2;
@@ -188,6 +193,8 @@ public class EpisodeGridDialog extends BaseBottomSheetDialog {
             spanCount = Math.min(spanCount, Math.max(1, (ResUtil.getScreenWidth() - ResUtil.dp2px(20)) / cellWidth));
         }
         itemCount = spanCount * (ResUtil.isLand(requireActivity()) ? 5 : 10);
+        arguments().putInt("span_count", spanCount);
+        arguments().putInt("item_count", itemCount);
     }
 
     private void setTitles() {

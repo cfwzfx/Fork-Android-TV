@@ -121,7 +121,11 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
                     com.fongmi.android.tv.databinding.AdapterEpisodeCacheBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false);
             return new BaseEpisodeHolder(binding.getRoot()) {
                 @Override public void initView(Episode item) {
-                    if (singleLine) binding.text.setSingleLine(true);
+                    if (singleLine) {
+                        binding.text.setSingleLine(true);
+                        binding.text.setEllipsize(android.text.TextUtils.TruncateAt.MARQUEE);
+                        binding.text.setMarqueeRepeatLimit(-1);
+                    }
                     binding.text.setText(item.getDesc().concat(item.getName()));
                     binding.getRoot().setSelected(item.isSelected());
                     binding.text.setSelected(item.isSelected());
