@@ -73,7 +73,7 @@ final class OfflineCachePrompt {
 
     private static TextView button(Activity activity, int label, int id, boolean primary, boolean danger) {
         TextView button = text(activity, activity.getString(label), 14,
-                primary ? R.color.offline_background : R.color.offline_text);
+                primary ? (danger ? R.color.offline_on_danger : R.color.offline_on_accent) : R.color.offline_text);
         button.setId(id);
         button.setGravity(Gravity.CENTER);
         button.setTypeface(null, Typeface.BOLD);

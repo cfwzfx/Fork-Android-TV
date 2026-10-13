@@ -26,13 +26,6 @@
                 android:textSize="20sp"
                 android:textStyle="bold" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="@string/offline_subtitle"
-                android:textColor="@color/offline_secondary"
-                android:textSize="13sp" />
         </LinearLayout>
 
         <androidx.appcompat.widget.AppCompatImageButton

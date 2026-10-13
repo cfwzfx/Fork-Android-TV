@@ -141,7 +141,7 @@ public class EpisodeAdapter extends RecyclerView.Adapter<BaseEpisodeHolder> {
                             : com.fongmi.android.tv.R.string.offline_episode_download;
                     binding.episodeCache.setImageResource(completed ? com.fongmi.android.tv.R.drawable.offline_select
                             : busy ? com.fongmi.android.tv.R.drawable.offline_sync : com.fongmi.android.tv.R.drawable.offline_download);
-                    android.content.res.ColorStateList color = completed ? android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#28865A"))
+                    android.content.res.ColorStateList color = completed ? android.content.res.ColorStateList.valueOf(binding.getRoot().getContext().getColor(com.fongmi.android.tv.R.color.offline_success))
                             : androidx.appcompat.content.res.AppCompatResources.getColorStateList(binding.getRoot().getContext(), com.fongmi.android.tv.R.color.selector_control);
                     binding.episodeCache.setImageTintList(color);
                     binding.episodeCacheArea.setSelected(item.isSelected());

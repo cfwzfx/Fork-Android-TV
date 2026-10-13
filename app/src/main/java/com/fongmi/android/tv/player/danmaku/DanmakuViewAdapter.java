@@ -28,7 +28,7 @@ public final class DanmakuViewAdapter implements AutoCloseable {
         view.getDanmakuController().setListener(new DanmakuController.Listener() {
             @Override public void onLoadCompleted(Uri uri, int count) {
                 App.post(() -> {
-                    if (view == next && uri.equals(source))
+                    if (count > 0 && view == next && uri.equals(source))
                         Notify.show(ResUtil.getString(R.string.danmaku_loaded_count, count));
                 });
             }

@@ -23,6 +23,6 @@
             android:background="@drawable/offline_button_secondary" android:textColor="@color/offline_text" android:focusable="true" />
         <TextView android:id="@+id/offline_sync_device_refresh" android:layout_width="wrap_content" android:layout_height="44dp"
             android:layout_marginStart="8dp" android:paddingHorizontal="16dp" android:gravity="center" android:text="@string/offline_sync_refresh"
-            android:background="@drawable/offline_button_primary" android:textColor="#101B23" android:textStyle="bold" android:focusable="true" />
+            android:background="@drawable/offline_button_primary" android:textColor="@color/offline_on_accent" android:textStyle="bold" android:focusable="true" />
     </LinearLayout>
 </LinearLayout>

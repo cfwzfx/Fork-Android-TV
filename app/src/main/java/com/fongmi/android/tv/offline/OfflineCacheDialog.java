@@ -21,6 +21,7 @@ import com.google.android.material.sidesheet.SideSheetDialog;
 /** Playback stays in the host activity while the shared cache list is open. */
 public final class OfflineCacheDialog extends DialogFragment {
     private OfflineCacheList list;
+    private int nightMode;
 
     @NonNull
     @Override
@@ -44,6 +45,7 @@ public final class OfflineCacheDialog extends DialogFragment {
 
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
+        nightMode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         OfflineCacheActivity.applyInsets(view, !(requireDialog() instanceof BottomSheetDialog));
         view.findViewById(R.id.offline_settings_button).setVisibility(View.GONE);
         view.findViewById(R.id.offline_back).setOnClickListener(v -> dismiss());
@@ -51,6 +53,12 @@ public final class OfflineCacheDialog extends DialogFragment {
         view.findViewById(R.id.offline_back).setContentDescription(getString(R.string.offline_close));
         list = new OfflineCacheList(requireActivity(), view);
         list.restore(state);
+        view.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View v, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                v.removeOnLayoutChangeListener(this);
+                if (v == getView()) applySheetBackground();
+            }
+        });
     }
 
     @Override
@@ -70,10 +78,21 @@ public final class OfflineCacheDialog extends DialogFragment {
     public void onConfigurationChanged(@NonNull Configuration configuration) {
         super.onConfigurationChanged(configuration);
         if (getView() != null) resizeSheet();
+        int mode = configuration.uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        if (mode == nightMode || getView() == null) return;
+        nightMode = mode;
+        View root = requireView();
+        root.post(() -> {
+            if (root != getView() || list == null) return;
+            OfflineCacheAppearance.refresh(requireActivity(), root, R.layout.offline_cache);
+            applySheetBackground();
+            list.refreshAppearance();
+        });
     }
 
     private void resizeSheet() {
         View sheet = (View) requireView().getParent();
+        applySheetBackground();
         ViewGroup.LayoutParams params = sheet.getLayoutParams();
         boolean portrait = requireDialog() instanceof BottomSheetDialog;
         params.width = portrait ? ViewGroup.LayoutParams.MATCH_PARENT : Math.min((int) (420 * getResources().getDisplayMetrics().density),
@@ -83,6 +102,16 @@ public final class OfflineCacheDialog extends DialogFragment {
         if (portrait) {
             ((BottomSheetDialog) requireDialog()).getBehavior().setState(BottomSheetBehavior.STATE_EXPANDED);
         } else requireDialog().getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+    }
+
+    private void applySheetBackground() {
+        View sheet = (View) requireView().getParent();
+        if (sheet.getBackground() instanceof com.google.android.material.shape.MaterialShapeDrawable background) {
+            background.setFillColor(android.content.res.ColorStateList.valueOf(requireActivity().getColor(R.color.offline_background)));
+        }
+        // Material installs the sheet background at first layout, after onStart.
+        // The content must stay transparent even before that background exists.
+        requireView().setBackground(null);
     }
 
     @Override

@@ -33,6 +33,7 @@ final class OfflineCacheList {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService reader = Executors.newSingleThreadExecutor();
     private final Rows rows;
+    private final RecyclerView recycler;
     private final OfflineCache cache;
     private final TextView empty, summary;
     private final View emptyContainer;
@@ -53,7 +54,7 @@ final class OfflineCacheList {
         empty = root.findViewById(R.id.offline_empty);
         emptyContainer = root.findViewById(R.id.offline_empty_container);
         summary = root.findViewById(R.id.offline_summary);
-        RecyclerView recycler = root.findViewById(R.id.offline_list);
+        recycler = root.findViewById(R.id.offline_list);
         recycler.setLayoutManager(new LinearLayoutManager(activity));
         recycler.setItemAnimator(null);
         recycler.setAdapter(rows);
@@ -78,6 +79,14 @@ final class OfflineCacheList {
     void save(android.os.Bundle state) {
         state.putBoolean("offline_selecting", selecting);
         state.putStringArrayList("offline_selected", new ArrayList<>(selected));
+    }
+
+    void refreshAppearance() {
+        android.os.Parcelable scroll = recycler.getLayoutManager().onSaveInstanceState();
+        recycler.setAdapter(rows);
+        recycler.getRecycledViewPool().clear();
+        recycler.getLayoutManager().onRestoreInstanceState(scroll);
+        updateSelectionBar();
     }
 
     void restore(android.os.Bundle state) {
@@ -333,7 +342,9 @@ final class OfflineCacheList {
 
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int type) {
-            View view = LayoutInflater.from(parent.getContext()).inflate(type == 0 ? R.layout.offline_group : R.layout.offline_row, parent, false);
+            android.view.ContextThemeWrapper theme = new android.view.ContextThemeWrapper(activity, 0);
+            theme.getTheme().setTo(activity.getTheme());
+            View view = LayoutInflater.from(activity).cloneInContext(theme).inflate(type == 0 ? R.layout.offline_group : R.layout.offline_row, parent, false);
             return type == 0 ? new GroupRow(view) : new Row(view);
         }
 
@@ -343,6 +354,18 @@ final class OfflineCacheList {
             else ((Row) holder).bind(item.download);
         }
         @Override public int getItemCount() { return items.size(); }
+    }
+
+    private void applyCheckboxAppearance(android.widget.CheckBox checked) {
+        android.graphics.drawable.StateListDrawable states = new android.graphics.drawable.StateListDrawable();
+        try (android.content.res.XmlResourceParser selected = activity.getResources().getXml(R.drawable.offline_checkbox_checked);
+             android.content.res.XmlResourceParser normal = activity.getResources().getXml(R.drawable.offline_checkbox_unchecked)) {
+            states.addState(new int[]{android.R.attr.state_checked}, android.graphics.drawable.Drawable.createFromXml(activity.getResources(), selected, activity.getTheme()));
+            states.addState(new int[]{}, android.graphics.drawable.Drawable.createFromXml(activity.getResources(), normal, activity.getTheme()));
+            checked.setButtonDrawable(states);
+        } catch (java.io.IOException | org.xmlpull.v1.XmlPullParserException error) {
+            throw new IllegalStateException("Invalid cache checkbox drawable", error);
+        }
     }
 
     private final class GroupRow extends RecyclerView.ViewHolder {
@@ -358,6 +381,7 @@ final class OfflineCacheList {
             checked = view.findViewById(R.id.offline_checked);
             androidx.core.widget.CompoundButtonCompat.setButtonTintList(checked, null);
             checked.setButtonTintList(null);
+            applyCheckboxAppearance(checked);
             checked.setOnClickListener(v -> {
                 List<Download> available = group.downloads.stream().filter(OfflineCacheList.this::selectable).toList();
                 boolean all = !available.isEmpty() && available.stream().allMatch(d -> selected.contains(d.request.id));
@@ -408,6 +432,7 @@ final class OfflineCacheList {
             checked = view.findViewById(R.id.offline_checked);
             androidx.core.widget.CompoundButtonCompat.setButtonTintList(checked, null);
             checked.setButtonTintList(null);
+            applyCheckboxAppearance(checked);
             checked.setOnClickListener(v -> toggleSelection(download));
             view.setOnClickListener(v -> { if (selecting) toggleSelection(download); });
             androidx.appcompat.widget.TooltipCompat.setTooltipText(delete, activity.getString(R.string.offline_more));

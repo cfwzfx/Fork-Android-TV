@@ -2080,6 +2080,143 @@ public class OfflineCacheTest {
         });
     }
 
+    @Test public void cacheManagerKeepsCornersOnFirstOpen() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        main(() -> screen.finish());
+        try (androidx.test.core.app.ActivityScenario<OfflineCacheActivity> scenario = androidx.test.core.app.ActivityScenario.launch(OfflineCacheActivity.class)) {
+            for (int orientation : new int[]{android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE}) {
+                scenario.onActivity(host -> host.setRequestedOrientation(orientation));
+                Thread.sleep(700);
+                scenario.onActivity(host -> {
+                    screen = host;
+                    OfflineIntegration.showPanel(host);
+                    host.getSupportFragmentManager().executePendingTransactions();
+                });
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+                Thread.sleep(700);
+                scenario.onActivity(host -> {
+                    OfflineCacheDialog panel = (OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel");
+                    android.view.View sheet = (android.view.View) panel.requireView().getParent();
+                    assertTrue(sheet.getBackground() instanceof com.google.android.material.shape.MaterialShapeDrawable);
+                    assertNull("First-open content must not cover the sheet corners", panel.requireView().getBackground());
+                    assertEquals(host.getColor(R.color.offline_background), ((com.google.android.material.shape.MaterialShapeDrawable) sheet.getBackground()).getFillColor().getDefaultColor());
+                    assertEquals(orientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+                            panel.requireDialog() instanceof com.google.android.material.bottomsheet.BottomSheetDialog);
+                });
+                capturePortraitSheet(orientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT ? "cache-first-portrait" : "cache-first-landscape");
+                scenario.onActivity(host -> ((OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel")).dismissNow());
+            }
+        }
+    }
+
+    @Test public void openCacheManagerRefreshesThemeWithoutLosingSelectionOrPlayback() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        OfflineVideo video = transferable("a/sample.mp4"); add(video);
+        Player player = launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        androidx.appcompat.app.AppCompatActivity host = (androidx.appcompat.app.AppCompatActivity) screen;
+        int[] previousMode = new int[1];
+        OfflineCacheDialog[] panel = new OfflineCacheDialog[1];
+        String[] media = new String[1], count = new String[1];
+        int[] colors = new int[2];
+        try {
+            main(() -> {
+                previousMode[0] = host.getDelegate().getLocalNightMode();
+                media[0] = player.getCurrentMediaItem().mediaId;
+                host.getDelegate().setLocalNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO);
+            });
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            main(() -> {
+                OfflineIntegration.showPanel(host); host.getSupportFragmentManager().executePendingTransactions();
+                panel[0] = (OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel");
+            });
+            boolean[] ready = {false}; long deadline = System.currentTimeMillis() + 5000;
+            do { main(() -> ready[0] = panel[0].requireView().findViewById(R.id.offline_select_all).isEnabled()); if (!ready[0]) Thread.sleep(100); }
+            while (!ready[0] && System.currentTimeMillis() < deadline);
+            assertTrue(ready[0]);
+            main(() -> {
+                panel[0].requireView().findViewById(R.id.offline_select).performClick();
+                panel[0].requireView().findViewById(R.id.offline_select_all).performClick();
+                count[0] = ((android.widget.TextView) panel[0].requireView().findViewById(R.id.offline_selection_count)).getText().toString();
+                colors[0] = cacheBackgroundPixel(panel[0].requireView());
+            });
+            Thread.sleep(700); capturePortraitSheet("cache-theme-light");
+            main(() -> host.getDelegate().setLocalNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES));
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            Thread.sleep(300);
+            main(() -> {
+                colors[1] = cacheBackgroundPixel(panel[0].requireView());
+                assertEquals(android.view.View.VISIBLE, panel[0].requireView().findViewById(R.id.offline_selection_bar).getVisibility());
+                assertEquals(count[0], ((android.widget.TextView) panel[0].requireView().findViewById(R.id.offline_selection_count)).getText().toString());
+                assertEquals(media[0], player.getCurrentMediaItem().mediaId);
+                assertEquals(host.getColor(R.color.offline_background), colors[1]);
+                android.widget.TextView all = panel[0].requireView().findViewById(R.id.offline_select_all);
+                android.widget.TextView delete = panel[0].requireView().findViewById(R.id.offline_delete_selected);
+                assertTrue("Live select-all text must remain readable", androidx.core.graphics.ColorUtils.calculateContrast(all.getCurrentTextColor(), host.getColor(R.color.offline_surface)) >= 4.5);
+                assertTrue("Live delete text must remain readable", androidx.core.graphics.ColorUtils.calculateContrast(delete.getCurrentTextColor(), host.getColor(R.color.offline_danger)) >= 4.5);
+                androidx.recyclerview.widget.RecyclerView rows = panel[0].requireView().findViewById(R.id.offline_list);
+                android.widget.CompoundButton checked = rows.getChildAt(0).findViewById(R.id.offline_checked);
+                assertTrue(checked.isChecked());
+                assertEquals(host.getColor(R.color.offline_accent), checkedButtonPixel(checked));
+            });
+            capturePortraitSheet("cache-theme-dark");
+            assertNotEquals(colors[0], colors[1]);
+            assertTrue(androidx.core.graphics.ColorUtils.calculateLuminance(colors[0]) > 0.7);
+            assertTrue(androidx.core.graphics.ColorUtils.calculateLuminance(colors[1]) < 0.2);
+        } finally {
+            main(() -> {
+                if (panel[0] != null && panel[0].isAdded()) panel[0].dismissNow();
+                host.getDelegate().setLocalNightMode(previousMode[0]);
+            });
+        }
+    }
+
+    private int cacheBackgroundPixel(android.view.View root) {
+        android.graphics.Bitmap pixel = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.drawable.Drawable background = root.getBackground();
+        if (background == null) background = ((android.view.View) root.getParent()).getBackground();
+        android.graphics.Rect bounds = new android.graphics.Rect(background.getBounds());
+        try { background.setBounds(0, 0, 1, 1); background.draw(new android.graphics.Canvas(pixel)); return pixel.getPixel(0, 0); }
+        finally { background.setBounds(bounds); pixel.recycle(); }
+    }
+
+    private int checkedButtonPixel(android.widget.CompoundButton checked) {
+        android.graphics.Bitmap pixels = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.drawable.Drawable button = checked.getButtonDrawable();
+        android.graphics.Rect bounds = new android.graphics.Rect(button.getBounds());
+        try { button.setBounds(0, 0, 24, 24); button.draw(new android.graphics.Canvas(pixels)); return pixels.getPixel(6, 5); }
+        finally { button.setBounds(bounds); pixels.recycle(); }
+    }
+
+    @Test public void cacheUiFollowsDayNightThemeAndKeepsReadableActions() throws Exception {
+        org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
+        int[] backgrounds = new int[2];
+        main(() -> {
+            for (int i = 0; i < 2; i++) {
+                android.content.res.Configuration config = new android.content.res.Configuration(screen.getResources().getConfiguration());
+                config.uiMode = (config.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                        | (i == 0 ? android.content.res.Configuration.UI_MODE_NIGHT_NO : android.content.res.Configuration.UI_MODE_NIGHT_YES);
+                android.view.ContextThemeWrapper themed = new android.view.ContextThemeWrapper(screen.createConfigurationContext(config), R.style.Theme_App);
+                backgrounds[i] = themed.getColor(R.color.offline_background);
+                assertTrue("Body text must remain readable", androidx.core.graphics.ColorUtils.calculateContrast(themed.getColor(R.color.offline_text), backgrounds[i]) >= 4.5);
+                assertTrue("Secondary text must remain readable", androidx.core.graphics.ColorUtils.calculateContrast(themed.getColor(R.color.offline_secondary), backgrounds[i]) >= 4.5);
+                assertTrue("Primary foreground must remain readable", androidx.core.graphics.ColorUtils.calculateContrast(themed.getColor(R.color.offline_on_accent), themed.getColor(R.color.offline_accent)) >= 4.5);
+                assertTrue("Delete foreground must remain readable", androidx.core.graphics.ColorUtils.calculateContrast(themed.getColor(R.color.offline_on_danger), themed.getColor(R.color.offline_danger)) >= 4.5);
+                android.view.LayoutInflater inflater = android.view.LayoutInflater.from(themed);
+                for (int layout : new int[]{R.layout.offline_cache, R.layout.offline_cache_settings, R.layout.offline_sync_devices,
+                        R.layout.offline_sync_selection, R.layout.offline_sync_status, R.layout.offline_row, R.layout.offline_group}) {
+                    android.view.View root = inflater.inflate(layout, null);
+                    if (root.findViewById(R.id.offline_action) instanceof android.widget.ImageView action) {
+                        int foreground = action.getImageTintList().getDefaultColor();
+                        assertTrue("Cache action icon must contrast with its button", androidx.core.graphics.ColorUtils.calculateContrast(foreground, themed.getColor(R.color.offline_accent)) >= 4.5);
+                    }
+                }
+            }
+            assertNotEquals("Light and dark cache UI must use different backgrounds", backgrounds[0], backgrounds[1]);
+            assertTrue(androidx.core.graphics.ColorUtils.calculateLuminance(backgrounds[0]) > 0.7);
+            assertTrue(androidx.core.graphics.ColorUtils.calculateLuminance(backgrounds[1]) < 0.2);
+        });
+    }
+
     @Test public void portraitEpisodeMarqueeScrollsWhileLandscapeKeepsTwoLines() throws Exception {
         org.junit.Assume.assumeTrue(BuildConfig.FLAVOR.startsWith("mobile"));
         OfflineVideo video = transferable("a/sample.mp4"); add(video);
@@ -2346,6 +2483,7 @@ public class OfflineCacheTest {
         OfflineVideo video = transferable("a/sample.mp4");
         add(video);
         launchSharedPlayer(waitState(video.id, Download.STATE_COMPLETED));
+        Thread.sleep(2000); // Let the initial video-size callback finish before requesting landscape.
         androidx.fragment.app.FragmentActivity host = (androidx.fragment.app.FragmentActivity) screen;
         main(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));
         Thread.sleep(600);
@@ -2357,8 +2495,15 @@ public class OfflineCacheTest {
                 host.getSupportFragmentManager().executePendingTransactions();
                 OfflineCacheDialog panel = (OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel");
                 assertTrue(panel.requireDialog() instanceof com.google.android.material.sidesheet.SideSheetDialog);
-                panel.dismissNow();
             });
+            Thread.sleep(700);
+            main(() -> {
+                OfflineCacheDialog panel = (OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel");
+                assertTrue(panel.requireView().findViewById(R.id.offline_back).getGlobalVisibleRect(new android.graphics.Rect()));
+                assertNull("Landscape first-open content must not cover the sheet corners", panel.requireView().getBackground());
+            });
+            capturePortraitSheet("cache-manager-landscape");
+            main(() -> ((OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel")).dismissNow());
         } finally { main(() -> host.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)); }
     }
 
@@ -2521,6 +2666,22 @@ public class OfflineCacheTest {
     }
 
     private void capturePortraitSheet(String name) throws Exception {
+        if (name.startsWith("cache-")) {
+            android.graphics.Bitmap[] rendered = new android.graphics.Bitmap[1];
+            main(() -> {
+                androidx.fragment.app.FragmentActivity host = (androidx.fragment.app.FragmentActivity) screen;
+                OfflineCacheDialog panel = (OfflineCacheDialog) host.getSupportFragmentManager().findFragmentByTag("offline_panel");
+                android.view.View sheet = (android.view.View) panel.requireView().getParent();
+                rendered[0] = android.graphics.Bitmap.createBitmap(sheet.getWidth(), sheet.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+                sheet.draw(new android.graphics.Canvas(rendered[0]));
+                assertEquals("The exposed sheet corner must stay transparent", 0, android.graphics.Color.alpha(rendered[0].getPixel(0, 0)));
+                assertEquals("The sheet center must remain opaque", 255, android.graphics.Color.alpha(rendered[0].getPixel(sheet.getWidth() / 2, sheet.getHeight() / 2)));
+            });
+            try (java.io.FileOutputStream output = new java.io.FileOutputStream(new File(context.getCacheDir(), "portrait-" + name + ".png"))) {
+                rendered[0].compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
+            } finally { rendered[0].recycle(); }
+            return;
+        }
         android.graphics.Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
         assertNotNull(bitmap);
         try (java.io.FileOutputStream output = new java.io.FileOutputStream(new File(context.getCacheDir(), "portrait-" + name + ".png"))) {
